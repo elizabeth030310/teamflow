@@ -1,0 +1,42 @@
+.container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  background-color: #f8fafc;
+  color: #1e293b;
+}
+
+h1 {
+  font-size: 48px;
+  color: #6366f1;
+  margin-bottom: 10px;
+}
+
+h2 {
+  font-size: 24px;
+  margin-bottom: 20px;
+}
+
+p {
+  font-size: 16px;
+  color: #64748b;
+  line-height: 1.8;
+}
+
+button {
+  margin-top: 20px;
+  padding: 14px 32px;
+  background-color: #6366f1;
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+button:hover {
+  background-color: #4f46e5;
+}
