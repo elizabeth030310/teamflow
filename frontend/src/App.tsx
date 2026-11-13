@@ -54,6 +54,7 @@ const getPriority = (priority: string | null) =>
 
 function App() {
   const [projects, setProjects] = useState<Project[]>([])
+  const [projectSearch, setProjectSearch] = useState('')
   const [tasks, setTasks] = useState<Task[]>([])
 
   // 프로젝트 생성
@@ -863,6 +864,11 @@ function App() {
     )
   }
 
+  const searchTerm = projectSearch.trim().toLocaleLowerCase()
+  const filteredProjects = projects.filter((project) =>
+    project.name.toLocaleLowerCase().includes(searchTerm),
+  )
+
   return (
     <div
       style={{
@@ -936,11 +942,27 @@ function App() {
 
       <h2>내 프로젝트 ({projects.length})</h2>
 
-      {projects.length === 0 && (
-        <p>아직 생성된 프로젝트가 없습니다.</p>
+      <label htmlFor="project-search">프로젝트 이름 검색</label>
+      <input
+        id="project-search"
+        type="search"
+        placeholder="프로젝트 이름 검색..."
+        value={projectSearch}
+        onChange={(event) => setProjectSearch(event.target.value)}
+        style={{ ...inputStyle, marginTop: '8px' }}
+      />
+
+      {projectSearch.trim() && (
+        <p>검색 결과 {filteredProjects.length}개</p>
       )}
 
-      {projects.map((project) => {
+      {projects.length === 0 ? (
+        <p>아직 생성된 프로젝트가 없습니다.</p>
+      ) : filteredProjects.length === 0 ? (
+        <p>검색 결과가 없습니다.</p>
+      ) : null}
+
+      {filteredProjects.map((project) => {
         const projectTasks = tasks
           .filter((task) => task.projectId === project.id)
           .sort((a, b) => a.id - b.id)
@@ -1345,3 +1367,4 @@ function App() {
 }
 
 export default App
+
