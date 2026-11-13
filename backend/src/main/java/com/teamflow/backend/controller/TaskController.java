@@ -5,6 +5,8 @@ import com.teamflow.backend.entity.Task;
 import com.teamflow.backend.repository.TaskRepository;
 import com.teamflow.backend.repository.ProjectRepository;
 
+import jakarta.servlet.http.HttpSession;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -27,17 +29,57 @@ public class TaskController {
         this.projectRepository = projectRepository;
     }
 
-    // 특정 프로젝트의 작업 카드 조회
-    @GetMapping("/project/{projectId}")
-    public List<Task> getTasksByProject(
-            @PathVariable Long projectId) {
+    // 현재 로그인한 사용자 ID 조회
+    private Long getCurrentUserId(HttpSession session) {
 
-        if (!projectRepository.existsById(projectId)) {
+        Object userId = session.getAttribute("userId");
+
+        if (!(userId instanceof Long)) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "로그인이 필요합니다."
+            );
+        }
+
+        return (Long) userId;
+    }
+
+    // 프로젝트가 현재 사용자의 것인지 확인
+    private void checkProjectOwnership(Long projectId, Long userId) {
+
+        if (projectId == null ||
+                projectRepository.findByIdAndOwnerId(projectId, userId).isEmpty()) {
+
             throw new ResponseStatusException(
                     HttpStatus.NOT_FOUND,
                     "프로젝트를 찾을 수 없습니다."
             );
         }
+    }
+
+    // 작업이 현재 사용자의 프로젝트에 속하는지 확인
+    private Task getOwnedTask(Long taskId, Long userId) {
+
+        Task task = taskRepository.findById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "작업 카드를 찾을 수 없습니다."
+                ));
+
+        checkProjectOwnership(task.getProjectId(), userId);
+
+        return task;
+    }
+
+    // 특정 프로젝트의 작업 카드 조회
+    @GetMapping("/project/{projectId}")
+    public List<Task> getTasksByProject(
+            @PathVariable Long projectId,
+            HttpSession session) {
+
+        Long userId = getCurrentUserId(session);
+
+        checkProjectOwnership(projectId, userId);
 
         return taskRepository.findByProjectId(projectId);
     }
@@ -45,7 +87,11 @@ public class TaskController {
     // 작업 카드 생성
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public Task createTask(@RequestBody Task task) {
+    public Task createTask(
+            @RequestBody Task task,
+            HttpSession session) {
+
+        Long userId = getCurrentUserId(session);
 
         if (task.getProjectId() == null ||
                 task.getTitle() == null ||
@@ -57,12 +103,7 @@ public class TaskController {
             );
         }
 
-        if (!projectRepository.existsById(task.getProjectId())) {
-            throw new ResponseStatusException(
-                    HttpStatus.NOT_FOUND,
-                    "프로젝트를 찾을 수 없습니다."
-            );
-        }
+        checkProjectOwnership(task.getProjectId(), userId);
 
         task.setTitle(task.getTitle().trim());
 
@@ -100,13 +141,12 @@ public class TaskController {
     @PutMapping("/{id}")
     public Task updateTask(
             @PathVariable Long id,
-            @RequestBody Task request) {
+            @RequestBody Task request,
+            HttpSession session) {
 
-        Task task = taskRepository.findById(id)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND,
-                        "작업 카드를 찾을 수 없습니다."
-                ));
+        Long userId = getCurrentUserId(session);
+
+        Task task = getOwnedTask(id, userId);
 
         // 제목 유효성 검사
         if (request.getTitle() == null ||
@@ -148,13 +188,12 @@ public class TaskController {
     @PatchMapping("/{id}/status")
     public Task updateTaskStatus(
             @PathVariable Long id,
-            @RequestBody Map<String, String> request) {
+            @RequestBody Map<String, String> request,
+            HttpSession session) {
 
-        Task task = taskRepository.findById(id)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND,
-                        "작업 카드를 찾을 수 없습니다."
-                ));
+        Long userId = getCurrentUserId(session);
+
+        Task task = getOwnedTask(id, userId);
 
         String status = request.get("status");
 
@@ -173,16 +212,15 @@ public class TaskController {
     // 작업 카드 삭제
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteTask(@PathVariable Long id) {
+    public void deleteTask(
+            @PathVariable Long id,
+            HttpSession session) {
 
-        if (!taskRepository.existsById(id)) {
-            throw new ResponseStatusException(
-                    HttpStatus.NOT_FOUND,
-                    "작업 카드를 찾을 수 없습니다."
-            );
-        }
+        Long userId = getCurrentUserId(session);
 
-        taskRepository.deleteById(id);
+        Task task = getOwnedTask(id, userId);
+
+        taskRepository.delete(task);
     }
 
     // 작업 상태 유효성 검사
