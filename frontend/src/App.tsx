@@ -1,6 +1,7 @@
 
 import { useEffect, useState } from 'react'
 import type { DragEvent } from 'react'
+import './TeamFlow.css'
 
 type Project = {
   id: number
@@ -21,7 +22,7 @@ type Task = {
 const columns = [
   { status: 'TODO', label: '할 일', color: '#64748b' },
   { status: 'IN_PROGRESS', label: '진행 중', color: '#2563eb' },
-  { status: 'DONE', label: '완료', color: '#16a34a' },
+  { status: 'DONE', label: '완료', color: '#15803d' },
 ]
 
 const priorities = [
@@ -34,13 +35,6 @@ const dueDateAlerts = {
   overdue: { label: '기한 초과', color: '#991b1b', background: '#fee2e2' },
   today: { label: '오늘 마감', color: '#9a3412', background: '#ffedd5' },
   upcoming: { label: '마감 임박', color: '#854d0e', background: '#fef9c3' },
-}
-
-const badgeStyle = {
-  padding: '4px 9px',
-  borderRadius: '20px',
-  fontSize: '12px',
-  fontWeight: 600,
 }
 
 const millisecondsPerDay = 86_400_000
@@ -64,25 +58,6 @@ const getDueDateAlert = (task: Task, today: number): keyof typeof dueDateAlerts 
   if (daysRemaining <= 3) return 'upcoming'
   return null
 }
-
-const inputStyle = {
-  padding: '10px',
-  width: '100%',
-  boxSizing: 'border-box' as const,
-  border: '1px solid #cbd5e1',
-  borderRadius: '6px',
-  backgroundColor: 'white',
-  color: '#1e293b',
-}
-
-const buttonStyle = (color: string) => ({
-  backgroundColor: color,
-  color: 'white',
-  border: 'none',
-  borderRadius: '6px',
-  padding: '8px 12px',
-  cursor: 'pointer',
-})
 
 const getPriority = (priority: string | null) =>
   priorities.find((item) => item.value === priority) ?? priorities[1]
@@ -624,8 +599,8 @@ function App() {
 
     return (
       <span
+        className="tf-badge"
         style={{
-          ...badgeStyle,
           backgroundColor: item.background,
           color: item.color,
         }}
@@ -649,6 +624,8 @@ function App() {
     return (
       <div
         key={task.id}
+        className="tf-task-card"
+        data-dragging={isDragging}
         draggable={
           !isEditing &&
           updatingTaskId === null &&
@@ -659,21 +636,7 @@ function App() {
           handleDragStart(event, task.id)
         }
         onDragEnd={handleDragEnd}
-        style={{
-          backgroundColor: 'white',
-          color: '#1e293b',
-          border: '1px solid #e2e8f0',
-          borderLeft: `4px solid ${
-            currentColumn?.color ?? '#64748b'
-          }`,
-          borderRadius: '8px',
-          padding: '14px',
-          marginBottom: '12px',
-          boxShadow: '0 2px 5px rgba(0,0,0,0.04)',
-          opacity: isDragging ? 0.45 : 1,
-          cursor: isEditing ? 'default' : 'grab',
-          transition: 'opacity 0.2s',
-        }}
+        style={{ borderInlineStartColor: currentColumn?.color }}
       >
         {isEditing ? (
           <>
@@ -698,7 +661,6 @@ function App() {
               onChange={(e) =>
                 setEditTaskTitle(e.target.value)
               }
-              style={inputStyle}
             />
 
             <label
@@ -718,10 +680,6 @@ function App() {
               onChange={(e) =>
                 setEditTaskDescription(e.target.value)
               }
-              style={{
-                ...inputStyle,
-                minHeight: '75px',
-              }}
             />
 
             <label
@@ -741,7 +699,6 @@ function App() {
               onChange={(e) =>
                 setEditTaskPriority(e.target.value)
               }
-              style={inputStyle}
             >
               {priorities.map((priority) => (
                 <option
@@ -771,7 +728,6 @@ function App() {
               onChange={(e) =>
                 setEditTaskDueDate(e.target.value)
               }
-              style={inputStyle}
             />
 
             <div
@@ -784,7 +740,7 @@ function App() {
               <button
                 onClick={() => handleUpdateTask(task.id)}
                 disabled={savingTaskId === task.id}
-                style={buttonStyle('#16a34a')}
+                className="tf-primary"
               >
                 {savingTaskId === task.id
                   ? '저장 중...'
@@ -819,6 +775,7 @@ function App() {
               </strong>
 
               <span
+                aria-hidden="true"
                 title="카드를 드래그해서 이동하세요"
                 style={{
                   color: '#94a3b8',
@@ -830,16 +787,9 @@ function App() {
               </span>
             </div>
 
-            <p
-              style={{
-                color: '#64748b',
-                fontSize: '13px',
-                lineHeight: 1.6,
-                overflowWrap: 'anywhere',
-              }}
-            >
-              {task.description}
-            </p>
+            {task.description && (
+              <p className="tf-task-description">{task.description}</p>
+            )}
 
             <div
               style={{
@@ -853,19 +803,14 @@ function App() {
               {renderPriorityBadge(task.priority)}
 
               {task.dueDate && (
-                <span
-                  style={{
-                    fontSize: '12px',
-                    color: '#475569',
-                  }}
-                >
-                  📅 {task.dueDate}
-                </span>
+                <time className="tf-date" dateTime={task.dueDate}>
+                  마감 {task.dueDate}
+                </time>
               )}
               {dueDateBadge && (
                 <span
+                  className="tf-badge"
                   style={{
-                    ...badgeStyle,
                     backgroundColor: dueDateBadge.background,
                     color: dueDateBadge.color,
                   }}
@@ -889,7 +834,6 @@ function App() {
                 )
               }
               style={{
-                ...inputStyle,
                 marginBottom: '12px',
                 cursor: 'pointer',
               }}
@@ -912,7 +856,7 @@ function App() {
                   updatingTaskId === task.id ||
                   deletingTaskId === task.id
                 }
-                style={buttonStyle('#3b82f6')}
+                aria-label={`${task.title} 수정`}
               >
                 수정
               </button>
@@ -923,7 +867,8 @@ function App() {
                   deletingTaskId === task.id ||
                   updatingTaskId === task.id
                 }
-                style={buttonStyle('#ef4444')}
+                className="tf-danger"
+                aria-label={`${task.title} 삭제`}
               >
                 {deletingTaskId === task.id
                   ? '삭제 중...'
@@ -981,637 +926,539 @@ function App() {
     taskStatusFilter !== 'ALL' || taskPriorityFilter !== 'ALL'
 
   return (
-    <div
-      style={{
-        padding: '30px 24px',
-        maxWidth: '1400px',
-        margin: '0 auto',
-        fontFamily: 'Arial, sans-serif',
-        color: '#1e293b',
-      }}
-    >
-      <header style={{ marginBottom: '32px' }}>
-        <h1 style={{ marginBottom: '6px' }}>
+    <main className="tf-app">
+      <header className="tf-hero">
+        <h1>
           TeamFlow
         </h1>
 
-        <p style={{ color: '#64748b' }}>
+        <p>
           팀 프로젝트와 작업을 한눈에 관리하세요.
         </p>
+        <nav aria-label="워크스페이스 바로가기">
+          <a href="#dashboard-title">대시보드</a>
+          <a href="#projects-title">내 프로젝트</a>
+        </nav>
       </header>
 
       <section
+        className="tf-dashboard"
         aria-labelledby="dashboard-title"
-        style={{
-          backgroundColor: '#f8fafc',
-          padding: '22px',
-          borderRadius: '12px',
-          marginBottom: '32px',
-        }}
       >
         <h2 id="dashboard-title" style={{ marginTop: 0 }}>대시보드</h2>
         {dashboardStatus === 'loading' && <p role="status">통계를 불러오는 중입니다.</p>}
         {dashboardStatus === 'error' && <p role="status">통계를 불러오지 못했습니다.</p>}
         {dashboardStatus === 'ready' && (
           <>
-            <dl
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 140px), 1fr))',
-                gap: '12px',
-                margin: 0,
-              }}
-            >
+            <dl className="tf-metrics">
               {dashboardTotals.map(({ label, value }) => (
                 <div
                   key={label}
-                  style={{
-                    backgroundColor: 'white',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '8px',
-                    padding: '14px',
-                  }}
                 >
-                  <dt style={{ color: '#475569' }}>{label}</dt>
-                  <dd style={{ margin: '6px 0 0', fontSize: '24px', fontWeight: 700 }}>
+                  <dt>{label}</dt>
+                  <dd>
                     {value}
                   </dd>
                 </div>
               ))}
             </dl>
 
-            <h3>작업 상태별 현황</h3>
-            <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: '12px' }}>
-              {statusCounts.map(({ status, label, color, count }) => (
-                <li key={status}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
-                    <span>{label}</span>
-                    <strong>{count}개</strong>
-                  </div>
-                  <div
-                    aria-hidden="true"
-                    style={{
-                      height: '10px',
-                      marginTop: '6px',
-                      borderRadius: '6px',
-                      backgroundColor: '#e2e8f0',
-                      overflow: 'hidden',
-                    }}
-                  >
+            <div className="tf-chart">
+              <h3>작업 상태별 현황</h3>
+              <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: '12px' }}>
+                {statusCounts.map(({ status, label, color, count }) => (
+                  <li key={status}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+                      <span>{label}</span>
+                      <strong>{count}개</strong>
+                    </div>
                     <div
+                      aria-hidden="true"
                       style={{
-                        width: `${totalTasks === 0 ? 0 : (count / totalTasks) * 100}%`,
-                        height: '100%',
-                        backgroundColor: color,
+                        height: '10px',
+                        marginTop: '6px',
+                        borderRadius: '6px',
+                        backgroundColor: '#e2e8f0',
+                        overflow: 'hidden',
                       }}
-                    />
-                  </div>
-                </li>
-              ))}
-            </ul>
+                    >
+                      <div
+                        style={{
+                          width: `${totalTasks === 0 ? 0 : (count / totalTasks) * 100}%`,
+                          height: '100%',
+                          backgroundColor: color,
+                        }}
+                      />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </>
         )}
       </section>
 
       {/* 프로젝트 생성 */}
-      <section
-        style={{
-          backgroundColor: '#f8fafc',
-          padding: '22px',
-          borderRadius: '12px',
-          marginBottom: '32px',
-        }}
-      >
-        <h2 style={{ marginTop: 0 }}>
-          새 프로젝트 만들기
-        </h2>
+      <div className="tf-tools">
+        <section className="tf-panel" aria-labelledby="create-project-title">
+          <h2 id="create-project-title">
+            새 프로젝트 만들기
+          </h2>
 
-        <input
-          type="text"
-          placeholder="프로젝트 이름"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          style={inputStyle}
-        />
+          <label htmlFor="project-name">프로젝트 이름</label>
+          <input
+            id="project-name"
+            type="text"
+            placeholder="프로젝트 이름"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
 
-        <textarea
-          placeholder="프로젝트 설명"
-          value={description}
-          onChange={(e) =>
-            setDescription(e.target.value)
-          }
-          style={{
-            ...inputStyle,
-            marginTop: '10px',
-            minHeight: '70px',
-          }}
-        />
+          <label htmlFor="project-description">프로젝트 설명</label>
+          <textarea
+            id="project-description"
+            placeholder="프로젝트 설명"
+            value={description}
+            onChange={(e) =>
+              setDescription(e.target.value)
+            }
+          />
 
-        <button
-          onClick={handleCreateProject}
-          style={{
-            ...buttonStyle('#2563eb'),
-            marginTop: '12px',
-          }}
-        >
-          + 프로젝트 추가
-        </button>
-      </section>
-
-      {error && (
-        <p style={{ color: '#dc2626' }}>
-          {error}
-        </p>
-      )}
-
-      <section
-        style={{
-          backgroundColor: '#f8fafc',
-          padding: '22px',
-          borderRadius: '12px',
-          marginBottom: '24px',
-        }}
-      >
-        <h2 style={{ marginTop: 0 }}>작업 검색 및 필터</h2>
-        <label htmlFor="task-search">작업 제목 검색</label>
-        <input
-          id="task-search"
-          type="search"
-          placeholder="작업 제목 검색..."
-          value={taskSearch}
-          onChange={(event) => setTaskSearch(event.target.value)}
-          style={{ ...inputStyle, marginTop: '8px' }}
-        />
-        <div style={{ display: 'flex', gap: '12px', marginTop: '12px', flexWrap: 'wrap' }}>
-          <div style={{ flex: '1 1 180px' }}>
-            <label htmlFor="task-status-filter">상태</label>
-            <select
-              id="task-status-filter"
-              value={taskStatusFilter}
-              onChange={(event) => setTaskStatusFilter(event.target.value)}
-              style={{ ...inputStyle, marginTop: '8px' }}
-            >
-              <option value="ALL">전체</option>
-              {columns.map((column) => (
-                <option key={column.status} value={column.status}>{column.label}</option>
-              ))}
-            </select>
-          </div>
-          <div style={{ flex: '1 1 180px' }}>
-            <label htmlFor="task-priority-filter">우선순위</label>
-            <select
-              id="task-priority-filter"
-              value={taskPriorityFilter}
-              onChange={(event) => setTaskPriorityFilter(event.target.value)}
-              style={{ ...inputStyle, marginTop: '8px' }}
-            >
-              <option value="ALL">전체</option>
-              {priorities.map((priority) => (
-                <option key={priority.value} value={priority.value}>{priority.label}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-        {hasTaskFilter && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '12px' }}>
-            <span>검색 결과 {filteredTasks.length}개</span>
-            <button
-              type="button"
-              onClick={() => {
-                setTaskSearch('')
-                setTaskStatusFilter('ALL')
-                setTaskPriorityFilter('ALL')
-              }}
-            >
-              필터 초기화
-            </button>
-          </div>
-        )}
-      </section>
-
-      <h2>내 프로젝트 ({projects.length})</h2>
-
-      <label htmlFor="project-search">프로젝트 이름 검색</label>
-      <input
-        id="project-search"
-        type="search"
-        placeholder="프로젝트 이름 검색..."
-        value={projectSearch}
-        onChange={(event) => setProjectSearch(event.target.value)}
-        style={{ ...inputStyle, marginTop: '8px' }}
-      />
-
-      {projectSearch.trim() && (
-        <p>검색 결과 {filteredProjects.length}개</p>
-      )}
-
-      {projects.length === 0 ? (
-        <p>아직 생성된 프로젝트가 없습니다.</p>
-      ) : filteredProjects.length === 0 ? (
-        <p>검색 결과가 없습니다.</p>
-      ) : null}
-
-      {filteredProjects.map((project) => {
-        const projectTasks = filteredTasks
-          .filter((task) => task.projectId === project.id)
-          .sort((a, b) => a.id - b.id)
-
-        return (
-          <section
-            key={project.id}
-            style={{
-              border: '1px solid #e2e8f0',
-              borderRadius: '12px',
-              padding: '22px',
-              marginBottom: '30px',
-              backgroundColor: '#fff',
-            }}
+          <button
+            onClick={handleCreateProject}
+            className="tf-primary"
           >
-            {/* 프로젝트 정보 */}
-            {editingId === project.id ? (
-              <>
-                <input
-                  type="text"
-                  value={editName}
-                  onChange={(e) =>
-                    setEditName(e.target.value)
-                  }
-                  style={inputStyle}
-                />
+            + 프로젝트 추가
+          </button>
+        </section>
 
-                <textarea
-                  value={editDescription}
-                  onChange={(e) =>
-                    setEditDescription(e.target.value)
-                  }
-                  style={{
-                    ...inputStyle,
-                    marginTop: '10px',
-                  }}
-                />
-
-                <div
-                  style={{
-                    display: 'flex',
-                    gap: '8px',
-                    marginTop: '10px',
-                  }}
-                >
-                  <button
-                    onClick={() =>
-                      handleUpdateProject(project.id)
-                    }
-                    style={buttonStyle('#16a34a')}
-                  >
-                    저장
-                  </button>
-
-                  <button onClick={handleCancelEdit}>
-                    취소
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <h3 style={{ marginTop: 0 }}>
-                  {project.name}
-                </h3>
-
-                <p style={{ color: '#64748b' }}>
-                  {project.description}
-                </p>
-
-                <div
-                  style={{
-                    display: 'flex',
-                    gap: '8px',
-                    flexWrap: 'wrap',
-                  }}
-                >
-                  <button
-                    onClick={() =>
-                      handleStartEdit(project)
-                    }
-                    style={buttonStyle('#3b82f6')}
-                  >
-                    프로젝트 수정
-                  </button>
-
-                  <button
-                    onClick={() =>
-                      handleDeleteProject(project.id)
-                    }
-                    style={buttonStyle('#ef4444')}
-                  >
-                    프로젝트 삭제
-                  </button>
-                </div>
-              </>
-            )}
-
-            {/* 칸반 보드 */}
-            <div
-              style={{
-                marginTop: '24px',
-                paddingTop: '20px',
-                borderTop: '1px solid #e2e8f0',
-              }}
-            >
-              <h3>
-                작업 보드 ({projectTasks.length})
-              </h3>
-
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns:
-                    'repeat(3, minmax(250px, 1fr))',
-                  gap: '16px',
-                  overflowX: 'auto',
-                  paddingBottom: '8px',
+        <section className="tf-panel" aria-labelledby="task-filter-title">
+          <h2 id="task-filter-title">작업 검색 및 필터</h2>
+          <label htmlFor="task-search">작업 제목 검색</label>
+          <input
+            id="task-search"
+            type="search"
+            placeholder="작업 제목 검색..."
+            value={taskSearch}
+            onChange={(event) => setTaskSearch(event.target.value)}
+          />
+          <div className="tf-filters">
+            <div>
+              <label htmlFor="task-status-filter">상태</label>
+              <select
+                id="task-status-filter"
+                value={taskStatusFilter}
+                onChange={(event) => setTaskStatusFilter(event.target.value)}
+              >
+                <option value="ALL">전체</option>
+                {columns.map((column) => (
+                  <option key={column.status} value={column.status}>{column.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="task-priority-filter">우선순위</label>
+              <select
+                id="task-priority-filter"
+                value={taskPriorityFilter}
+                onChange={(event) => setTaskPriorityFilter(event.target.value)}
+              >
+                <option value="ALL">전체</option>
+                {priorities.map((priority) => (
+                  <option key={priority.value} value={priority.value}>{priority.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {hasTaskFilter && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '12px' }}>
+              <span role="status">검색 결과 {filteredTasks.length}개</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setTaskSearch('')
+                  setTaskStatusFilter('ALL')
+                  setTaskPriorityFilter('ALL')
                 }}
               >
-                {columns.map((column) => {
-                  const columnTasks = projectTasks.filter(
-                    (task) =>
-                      task.status === column.status
-                  )
+                필터 초기화
+              </button>
+            </div>
+          )}
+        </section>
+      </div>
 
-                  const columnKey =
-                    `${project.id}-${column.status}`
+      {error && <p className="tf-error" role="alert">{error}</p>}
 
-                  const isDragOver =
-                    dragOverColumn === columnKey
+      <section aria-labelledby="projects-title">
+        <div className="tf-projects-heading">
+          <h2 id="projects-title">내 프로젝트 <span>{projects.length}</span></h2>
 
-                  return (
-                    <div
-                      key={column.status}
-                      onDragOver={(event) =>
-                        handleDragOver(
-                          event,
-                          project.id,
-                          column.status
-                        )
-                      }
-                      onDrop={(event) =>
-                        handleDrop(
-                          event,
-                          project.id,
-                          column.status
-                        )
-                      }
-                      style={{
-                        backgroundColor: isDragOver
-                          ? '#dbeafe'
-                          : '#f1f5f9',
-                        border: isDragOver
-                          ? '2px dashed #2563eb'
-                          : '2px solid transparent',
-                        borderRadius: '10px',
-                        padding: '14px',
-                        minHeight: '260px',
-                        transition:
-                          'background-color 0.2s, border 0.2s',
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          marginBottom: '18px',
-                        }}
-                      >
-                        <h4
-                          style={{
-                            margin: 0,
-                            color: column.color,
-                          }}
-                        >
-                          {column.label}
-                        </h4>
+          <div className="tf-project-search">
+            <label htmlFor="project-search">프로젝트 이름 검색</label>
+            <input
+              id="project-search"
+              type="search"
+              placeholder="프로젝트 이름 검색..."
+              value={projectSearch}
+              onChange={(event) => setProjectSearch(event.target.value)}
+            />
+          </div>
+        </div>
 
-                        <span
-                          style={{
-                            backgroundColor: column.color,
-                            color: 'white',
-                            padding: '4px 9px',
-                            borderRadius: '20px',
-                            fontSize: '12px',
-                          }}
-                        >
-                          {columnTasks.length}
-                        </span>
-                      </div>
+        {projectSearch.trim() && (
+          <p role="status">검색 결과 {filteredProjects.length}개</p>
+        )}
 
-                      {columnTasks.length === 0 && (
-                        <p
-                          style={{
-                            color: '#94a3b8',
-                            fontSize: '13px',
-                            textAlign: 'center',
-                            padding: '25px 0',
-                          }}
-                        >
-                          작업이 없습니다.
-                        </p>
-                      )}
+        {projects.length === 0 ? (
+          <p className="tf-empty">아직 생성된 프로젝트가 없습니다.</p>
+        ) : filteredProjects.length === 0 ? (
+          <p className="tf-empty">검색 결과가 없습니다.</p>
+        ) : null}
 
-                      {columnTasks.map((task) =>
-                        renderTaskCard(task)
-                      )}
+        {filteredProjects.map((project) => {
+          const projectTasks = filteredTasks
+            .filter((task) => task.projectId === project.id)
+            .sort((a, b) => a.id - b.id)
 
-                      <button
-                        onClick={() =>
-                          handleStartTask(
-                            project.id,
-                            column.status
-                          )
-                        }
-                        style={{
-                          width: '100%',
-                          padding: '10px',
-                          backgroundColor: 'transparent',
-                          border: '1px dashed #94a3b8',
-                          borderRadius: '7px',
-                          color: '#475569',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        + 새 작업 추가
-                      </button>
-                    </div>
-                  )
-                })}
-              </div>
-
-              {/* 작업 카드 생성 입력창 */}
-              {taskProjectId === project.id && (
-                <div
-                  style={{
-                    marginTop: '20px',
-                    padding: '18px',
-                    backgroundColor: '#eff6ff',
-                    border: '1px solid #bfdbfe',
-                    borderRadius: '10px',
-                  }}
-                >
-                  <h4 style={{ marginTop: 0 }}>
-                    새 작업 추가
-                  </h4>
-
-                  <label
-                    htmlFor={`task-title-${project.id}`}
-                    style={{
-                      display: 'block',
-                      marginBottom: '6px',
-                    }}
-                  >
-                    작업 제목
-                  </label>
-
+          return (
+            <section
+              key={project.id}
+              className="tf-project"
+              aria-label={project.name}
+            >
+              {/* 프로젝트 정보 */}
+              {editingId === project.id ? (
+                <>
                   <input
-                    id={`task-title-${project.id}`}
                     type="text"
-                    placeholder="작업 제목"
-                    value={taskTitle}
+                    aria-label="프로젝트 이름 수정"
+                    value={editName}
                     onChange={(e) =>
-                      setTaskTitle(e.target.value)
+                      setEditName(e.target.value)
                     }
-                    style={inputStyle}
                   />
-
-                  <label
-                    htmlFor={`task-description-${project.id}`}
-                    style={{
-                      display: 'block',
-                      marginTop: '12px',
-                      marginBottom: '6px',
-                    }}
-                  >
-                    작업 설명
-                  </label>
 
                   <textarea
-                    id={`task-description-${project.id}`}
-                    placeholder="작업 설명"
-                    value={taskDescription}
+                    aria-label="프로젝트 설명 수정"
+                    value={editDescription}
                     onChange={(e) =>
-                      setTaskDescription(e.target.value)
+                      setEditDescription(e.target.value)
                     }
                     style={{
-                      ...inputStyle,
-                      minHeight: '75px',
+                      marginTop: '10px',
                     }}
-                  />
-
-                  <label
-                    htmlFor={`task-status-${project.id}`}
-                    style={{
-                      display: 'block',
-                      marginTop: '12px',
-                      marginBottom: '6px',
-                    }}
-                  >
-                    작업 상태
-                  </label>
-
-                  <select
-                    id={`task-status-${project.id}`}
-                    value={taskStatus}
-                    onChange={(e) =>
-                      setTaskStatus(e.target.value)
-                    }
-                    style={inputStyle}
-                  >
-                    <option value="TODO">할 일</option>
-                    <option value="IN_PROGRESS">진행 중</option>
-                    <option value="DONE">완료</option>
-                  </select>
-
-                  <label
-                    htmlFor={`task-priority-${project.id}`}
-                    style={{
-                      display: 'block',
-                      marginTop: '12px',
-                      marginBottom: '6px',
-                    }}
-                  >
-                    우선순위
-                  </label>
-
-                  <select
-                    id={`task-priority-${project.id}`}
-                    value={taskPriority}
-                    onChange={(e) =>
-                      setTaskPriority(e.target.value)
-                    }
-                    style={inputStyle}
-                  >
-                    {priorities.map((priority) => (
-                      <option
-                        key={priority.value}
-                        value={priority.value}
-                      >
-                        {priority.label}
-                      </option>
-                    ))}
-                  </select>
-
-                  <label
-                    htmlFor={`task-date-${project.id}`}
-                    style={{
-                      display: 'block',
-                      marginTop: '12px',
-                      marginBottom: '6px',
-                    }}
-                  >
-                    마감일 (선택 사항)
-                  </label>
-
-                  <input
-                    id={`task-date-${project.id}`}
-                    type="date"
-                    value={taskDueDate}
-                    onChange={(e) =>
-                      setTaskDueDate(e.target.value)
-                    }
-                    style={inputStyle}
                   />
 
                   <div
                     style={{
                       display: 'flex',
                       gap: '8px',
-                      marginTop: '12px',
+                      marginTop: '10px',
                     }}
                   >
                     <button
                       onClick={() =>
-                        handleCreateTask(project.id)
+                        handleUpdateProject(project.id)
                       }
-                      disabled={creatingTask}
-                      style={buttonStyle('#2563eb')}
+                      className="tf-primary"
                     >
-                      {creatingTask
-                        ? '추가 중...'
-                        : '작업 추가'}
+                      저장
                     </button>
 
-                    <button
-                      onClick={handleCancelTask}
-                      disabled={creatingTask}
-                    >
+                    <button onClick={handleCancelEdit}>
                       취소
                     </button>
                   </div>
-                </div>
+                </>
+              ) : (
+                <>
+                  <h3 style={{ marginTop: 0 }}>
+                    {project.name}
+                  </h3>
+
+                  <p style={{ color: '#64748b' }}>
+                    {project.description}
+                  </p>
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: '8px',
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <button
+                      onClick={() =>
+                        handleStartEdit(project)
+                      }
+                    >
+                      프로젝트 수정
+                    </button>
+
+                    <button
+                      onClick={() =>
+                        handleDeleteProject(project.id)
+                      }
+                      className="tf-danger"
+                    >
+                      프로젝트 삭제
+                    </button>
+                  </div>
+                </>
               )}
-            </div>
-          </section>
-        )
-      })}
-    </div>
+
+              {/* 칸반 보드 */}
+              <div
+                style={{
+                  marginTop: '24px',
+                  paddingTop: '20px',
+                  borderTop: '1px solid #e2e8f0',
+                }}
+              >
+                <h3>
+                  작업 보드 ({projectTasks.length})
+                </h3>
+
+                <div className="tf-board">
+                  {columns.map((column) => {
+                    const columnTasks = projectTasks.filter(
+                      (task) =>
+                        task.status === column.status
+                    )
+
+                    const columnKey =
+                      `${project.id}-${column.status}`
+
+                    const isDragOver =
+                      dragOverColumn === columnKey
+
+                    return (
+                      <div
+                        key={column.status}
+                        className="tf-column"
+                        data-status={column.status}
+                        data-drop-target={isDragOver}
+                        onDragOver={(event) =>
+                          handleDragOver(
+                            event,
+                            project.id,
+                            column.status
+                          )
+                        }
+                        onDrop={(event) =>
+                          handleDrop(
+                            event,
+                            project.id,
+                            column.status
+                          )
+                        }
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            marginBottom: '18px',
+                          }}
+                        >
+                          <h4
+                            className="tf-column-title"
+                            style={{
+                              margin: 0,
+                              color: column.color,
+                            }}
+                          >
+                            {column.label}
+                          </h4>
+
+                          <span
+                            className="tf-badge tf-count"
+                          >
+                            {columnTasks.length}
+                          </span>
+                        </div>
+
+                        {columnTasks.length === 0 && (
+                          <p className="tf-column-empty">
+                            작업이 없습니다.
+                          </p>
+                        )}
+
+                        {columnTasks.map((task) =>
+                          renderTaskCard(task)
+                        )}
+
+                        <button
+                          className="tf-add-task"
+                          aria-label={`${column.label} 열에 새 작업 추가`}
+                          onClick={() =>
+                            handleStartTask(
+                              project.id,
+                              column.status
+                            )
+                          }
+                        >
+                          + 새 작업 추가
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {/* 작업 카드 생성 입력창 */}
+                {taskProjectId === project.id && (
+                  <div className="tf-task-form">
+                    <h4 style={{ marginTop: 0 }}>
+                      새 작업 추가
+                    </h4>
+
+                    <label
+                      htmlFor={`task-title-${project.id}`}
+                      style={{
+                        display: 'block',
+                        marginBottom: '6px',
+                      }}
+                    >
+                      작업 제목
+                    </label>
+
+                    <input
+                      id={`task-title-${project.id}`}
+                      type="text"
+                      autoFocus
+                      placeholder="작업 제목"
+                      value={taskTitle}
+                      onChange={(e) =>
+                        setTaskTitle(e.target.value)
+                      }
+                    />
+
+                    <label
+                      htmlFor={`task-description-${project.id}`}
+                      style={{
+                        display: 'block',
+                        marginTop: '12px',
+                        marginBottom: '6px',
+                      }}
+                    >
+                      작업 설명
+                    </label>
+
+                    <textarea
+                      id={`task-description-${project.id}`}
+                      placeholder="작업 설명"
+                      value={taskDescription}
+                      onChange={(e) =>
+                        setTaskDescription(e.target.value)
+                      }
+                    />
+
+                    <label
+                      htmlFor={`task-status-${project.id}`}
+                      style={{
+                        display: 'block',
+                        marginTop: '12px',
+                        marginBottom: '6px',
+                      }}
+                    >
+                      작업 상태
+                    </label>
+
+                    <select
+                      id={`task-status-${project.id}`}
+                      value={taskStatus}
+                      onChange={(e) =>
+                        setTaskStatus(e.target.value)
+                      }
+                    >
+                      <option value="TODO">할 일</option>
+                      <option value="IN_PROGRESS">진행 중</option>
+                      <option value="DONE">완료</option>
+                    </select>
+
+                    <label
+                      htmlFor={`task-priority-${project.id}`}
+                      style={{
+                        display: 'block',
+                        marginTop: '12px',
+                        marginBottom: '6px',
+                      }}
+                    >
+                      우선순위
+                    </label>
+
+                    <select
+                      id={`task-priority-${project.id}`}
+                      value={taskPriority}
+                      onChange={(e) =>
+                        setTaskPriority(e.target.value)
+                      }
+                    >
+                      {priorities.map((priority) => (
+                        <option
+                          key={priority.value}
+                          value={priority.value}
+                        >
+                          {priority.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    <label
+                      htmlFor={`task-date-${project.id}`}
+                      style={{
+                        display: 'block',
+                        marginTop: '12px',
+                        marginBottom: '6px',
+                      }}
+                    >
+                      마감일 (선택 사항)
+                    </label>
+
+                    <input
+                      id={`task-date-${project.id}`}
+                      type="date"
+                      value={taskDueDate}
+                      onChange={(e) =>
+                        setTaskDueDate(e.target.value)
+                      }
+                    />
+
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: '8px',
+                        marginTop: '12px',
+                      }}
+                    >
+                      <button
+                        onClick={() =>
+                          handleCreateTask(project.id)
+                        }
+                        disabled={creatingTask}
+                        className="tf-primary"
+                      >
+                        {creatingTask
+                          ? '추가 중...'
+                          : '작업 추가'}
+                      </button>
+
+                      <button
+                        onClick={handleCancelTask}
+                        disabled={creatingTask}
+                      >
+                        취소
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+          )
+        })}
+      </section>
+    </main>
   )
 }
 
