@@ -56,6 +56,9 @@ function App() {
   const [projects, setProjects] = useState<Project[]>([])
   const [projectSearch, setProjectSearch] = useState('')
   const [tasks, setTasks] = useState<Task[]>([])
+  const [taskSearch, setTaskSearch] = useState('')
+  const [taskStatusFilter, setTaskStatusFilter] = useState('ALL')
+  const [taskPriorityFilter, setTaskPriorityFilter] = useState('ALL')
 
   // 프로젝트 생성
   const [name, setName] = useState('')
@@ -868,6 +871,14 @@ function App() {
   const filteredProjects = projects.filter((project) =>
     project.name.toLocaleLowerCase().includes(searchTerm),
   )
+  const taskSearchTerm = taskSearch.trim().toLocaleLowerCase()
+  const filteredTasks = tasks.filter((task) =>
+    task.title.toLocaleLowerCase().includes(taskSearchTerm) &&
+    (taskStatusFilter === 'ALL' || task.status === taskStatusFilter) &&
+    (taskPriorityFilter === 'ALL' || task.priority === taskPriorityFilter),
+  )
+  const hasTaskFilter = Boolean(taskSearchTerm) ||
+    taskStatusFilter !== 'ALL' || taskPriorityFilter !== 'ALL'
 
   return (
     <div
@@ -940,6 +951,71 @@ function App() {
         </p>
       )}
 
+      <section
+        style={{
+          backgroundColor: '#f8fafc',
+          padding: '22px',
+          borderRadius: '12px',
+          marginBottom: '24px',
+        }}
+      >
+        <h2 style={{ marginTop: 0 }}>작업 검색 및 필터</h2>
+        <label htmlFor="task-search">작업 제목 검색</label>
+        <input
+          id="task-search"
+          type="search"
+          placeholder="작업 제목 검색..."
+          value={taskSearch}
+          onChange={(event) => setTaskSearch(event.target.value)}
+          style={{ ...inputStyle, marginTop: '8px' }}
+        />
+        <div style={{ display: 'flex', gap: '12px', marginTop: '12px', flexWrap: 'wrap' }}>
+          <div style={{ flex: '1 1 180px' }}>
+            <label htmlFor="task-status-filter">상태</label>
+            <select
+              id="task-status-filter"
+              value={taskStatusFilter}
+              onChange={(event) => setTaskStatusFilter(event.target.value)}
+              style={{ ...inputStyle, marginTop: '8px' }}
+            >
+              <option value="ALL">전체</option>
+              {columns.map((column) => (
+                <option key={column.status} value={column.status}>{column.label}</option>
+              ))}
+            </select>
+          </div>
+          <div style={{ flex: '1 1 180px' }}>
+            <label htmlFor="task-priority-filter">우선순위</label>
+            <select
+              id="task-priority-filter"
+              value={taskPriorityFilter}
+              onChange={(event) => setTaskPriorityFilter(event.target.value)}
+              style={{ ...inputStyle, marginTop: '8px' }}
+            >
+              <option value="ALL">전체</option>
+              {priorities.map((priority) => (
+                <option key={priority.value} value={priority.value}>{priority.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        {hasTaskFilter && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '12px' }}>
+            <span>검색 결과 {filteredTasks.length}개</span>
+            <button
+              type="button"
+              onClick={() => {
+                setTaskSearch('')
+                setTaskStatusFilter('ALL')
+                setTaskPriorityFilter('ALL')
+              }}
+            >
+              필터 초기화
+            </button>
+          </div>
+        )}
+      </section>
+
       <h2>내 프로젝트 ({projects.length})</h2>
 
       <label htmlFor="project-search">프로젝트 이름 검색</label>
@@ -963,7 +1039,7 @@ function App() {
       ) : null}
 
       {filteredProjects.map((project) => {
-        const projectTasks = tasks
+        const projectTasks = filteredTasks
           .filter((task) => task.projectId === project.id)
           .sort((a, b) => a.id - b.id)
 
