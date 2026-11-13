@@ -14,6 +14,8 @@ type Task = {
   title: string
   description: string
   status: string
+  priority: string | null
+  dueDate: string | null
 }
 
 const columns = [
@@ -22,12 +24,20 @@ const columns = [
   { status: 'DONE', label: '완료', color: '#16a34a' },
 ]
 
+const priorities = [
+  { value: 'HIGH', label: '높음', color: '#dc2626', background: '#fee2e2' },
+  { value: 'MEDIUM', label: '보통', color: '#b45309', background: '#fef3c7' },
+  { value: 'LOW', label: '낮음', color: '#15803d', background: '#dcfce7' },
+]
+
 const inputStyle = {
   padding: '10px',
   width: '100%',
   boxSizing: 'border-box' as const,
   border: '1px solid #cbd5e1',
   borderRadius: '6px',
+  backgroundColor: 'white',
+  color: '#1e293b',
 }
 
 const buttonStyle = (color: string) => ({
@@ -38,6 +48,9 @@ const buttonStyle = (color: string) => ({
   padding: '8px 12px',
   cursor: 'pointer',
 })
+
+const getPriority = (priority: string | null) =>
+  priorities.find((item) => item.value === priority) ?? priorities[1]
 
 function App() {
   const [projects, setProjects] = useState<Project[]>([])
@@ -52,24 +65,28 @@ function App() {
   const [editName, setEditName] = useState('')
   const [editDescription, setEditDescription] = useState('')
 
-  // 작업 카드 생성
+  // 작업 생성
   const [taskProjectId, setTaskProjectId] = useState<number | null>(null)
   const [taskTitle, setTaskTitle] = useState('')
   const [taskDescription, setTaskDescription] = useState('')
   const [taskStatus, setTaskStatus] = useState('TODO')
+  const [taskPriority, setTaskPriority] = useState('MEDIUM')
+  const [taskDueDate, setTaskDueDate] = useState('')
 
-  // 작업 카드 수정
+  // 작업 수정
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null)
   const [editTaskTitle, setEditTaskTitle] = useState('')
   const [editTaskDescription, setEditTaskDescription] = useState('')
+  const [editTaskPriority, setEditTaskPriority] = useState('MEDIUM')
+  const [editTaskDueDate, setEditTaskDueDate] = useState('')
 
-  // 작업 처리 상태
+  // API 처리 상태
   const [updatingTaskId, setUpdatingTaskId] = useState<number | null>(null)
   const [deletingTaskId, setDeletingTaskId] = useState<number | null>(null)
   const [savingTaskId, setSavingTaskId] = useState<number | null>(null)
   const [creatingTask, setCreatingTask] = useState(false)
 
-  // 드래그 앤 드롭 상태
+  // 드래그 앤 드롭
   const [draggingTaskId, setDraggingTaskId] = useState<number | null>(null)
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null)
 
@@ -105,8 +122,8 @@ function App() {
         )
 
         setTasks(taskLists.flat())
-      } catch (error) {
-        console.error(error)
+      } catch (err) {
+        console.error(err)
         setError('데이터를 불러오지 못했습니다.')
       }
     }
@@ -126,9 +143,7 @@ function App() {
 
       const response = await fetch('/api/projects', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: name.trim(),
           description: description.trim(),
@@ -144,8 +159,8 @@ function App() {
       setProjects((prev) => [...prev, newProject])
       setName('')
       setDescription('')
-    } catch (error) {
-      console.error(error)
+    } catch (err) {
+      console.error(err)
       setError('프로젝트 생성에 실패했습니다.')
     }
   }
@@ -177,9 +192,7 @@ function App() {
 
       const response = await fetch(`/api/projects/${id}`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: editName.trim(),
           description: editDescription.trim(),
@@ -199,8 +212,8 @@ function App() {
       )
 
       handleCancelEdit()
-    } catch (error) {
-      console.error(error)
+    } catch (err) {
+      console.error(err)
       setError('프로젝트 수정에 실패했습니다.')
     }
   }
@@ -249,13 +262,13 @@ function App() {
       ) {
         handleCancelEditTask()
       }
-    } catch (error) {
-      console.error(error)
+    } catch (err) {
+      console.error(err)
       setError('프로젝트 삭제에 실패했습니다.')
     }
   }
 
-  // 작업 카드 생성 입력창 열기
+  // 작업 생성 입력창 열기
   const handleStartTask = (
     projectId: number,
     status = 'TODO'
@@ -264,18 +277,22 @@ function App() {
     setTaskTitle('')
     setTaskDescription('')
     setTaskStatus(status)
+    setTaskPriority('MEDIUM')
+    setTaskDueDate('')
     setError('')
   }
 
-  // 작업 카드 생성 취소
+  // 작업 생성 취소
   const handleCancelTask = () => {
     setTaskProjectId(null)
     setTaskTitle('')
     setTaskDescription('')
     setTaskStatus('TODO')
+    setTaskPriority('MEDIUM')
+    setTaskDueDate('')
   }
 
-  // 작업 카드 생성
+  // 작업 생성
   const handleCreateTask = async (projectId: number) => {
     if (!taskTitle.trim()) {
       alert('작업 제목을 입력해 주세요.')
@@ -288,14 +305,14 @@ function App() {
 
       const response = await fetch('/api/tasks', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           projectId,
           title: taskTitle.trim(),
           description: taskDescription.trim(),
           status: taskStatus,
+          priority: taskPriority,
+          dueDate: taskDueDate || null,
         }),
       })
 
@@ -307,30 +324,35 @@ function App() {
 
       setTasks((prev) => [...prev, newTask])
       handleCancelTask()
-    } catch (error) {
-      console.error(error)
+    } catch (err) {
+      console.error(err)
       setError('작업 카드 생성에 실패했습니다.')
     } finally {
       setCreatingTask(false)
     }
   }
 
-  // 작업 카드 수정 시작
+  // 작업 수정 시작
   const handleStartEditTask = (task: Task) => {
     setEditingTaskId(task.id)
     setEditTaskTitle(task.title)
     setEditTaskDescription(task.description ?? '')
+    setEditTaskPriority(task.priority || 'MEDIUM')
+    setEditTaskDueDate(task.dueDate || '')
     setError('')
   }
 
-  // 작업 카드 수정 취소
+  // 작업 수정 취소
   const handleCancelEditTask = () => {
     setEditingTaskId(null)
     setEditTaskTitle('')
     setEditTaskDescription('')
+    setEditTaskPriority('MEDIUM')
+    setEditTaskDueDate('')
   }
 
-  // 작업 카드 수정 저장
+  // 작업 수정 저장
+  // 마감일을 비우면 null을 전달하여 기존 마감일 삭제
   const handleUpdateTask = async (taskId: number) => {
     if (!editTaskTitle.trim()) {
       alert('작업 제목을 입력해 주세요.')
@@ -343,12 +365,12 @@ function App() {
 
       const response = await fetch(`/api/tasks/${taskId}`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: editTaskTitle.trim(),
           description: editTaskDescription.trim(),
+          priority: editTaskPriority,
+          dueDate: editTaskDueDate || null,
         }),
       })
 
@@ -365,15 +387,15 @@ function App() {
       )
 
       handleCancelEditTask()
-    } catch (error) {
-      console.error(error)
+    } catch (err) {
+      console.error(err)
       setError('작업 카드 수정에 실패했습니다.')
     } finally {
       setSavingTaskId(null)
     }
   }
 
-  // 작업 카드 상태 변경 (기존 기능과 드래그 앤 드롭에서 공통 사용)
+  // 작업 상태 변경
   const handleUpdateTaskStatus = async (
     taskId: number,
     newStatus: string
@@ -394,12 +416,8 @@ function App() {
         `/api/tasks/${taskId}/status`,
         {
           method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            status: newStatus,
-          }),
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: newStatus }),
         }
       )
 
@@ -414,15 +432,15 @@ function App() {
           task.id === taskId ? updatedTask : task
         )
       )
-    } catch (error) {
-      console.error(error)
+    } catch (err) {
+      console.error(err)
       setError('작업 상태 변경에 실패했습니다.')
     } finally {
       setUpdatingTaskId(null)
     }
   }
 
-  // 작업 카드 삭제
+  // 작업 삭제
   const handleDeleteTask = async (taskId: number) => {
     const confirmed = window.confirm(
       '정말 이 작업 카드를 삭제하시겠습니까?'
@@ -449,8 +467,8 @@ function App() {
       if (editingTaskId === taskId) {
         handleCancelEditTask()
       }
-    } catch (error) {
-      console.error(error)
+    } catch (err) {
+      console.error(err)
       setError('작업 카드 삭제에 실패했습니다.')
     } finally {
       setDeletingTaskId(null)
@@ -472,15 +490,11 @@ function App() {
     }
 
     setDraggingTaskId(taskId)
-
     event.dataTransfer.effectAllowed = 'move'
-    event.dataTransfer.setData(
-      'text/plain',
-      String(taskId)
-    )
+    event.dataTransfer.setData('text/plain', String(taskId))
   }
 
-  // 드래그 중인 카드가 열 위로 올라왔을 때
+  // 드래그 중
   const handleDragOver = (
     event: DragEvent<HTMLDivElement>,
     projectId: number,
@@ -500,12 +514,14 @@ function App() {
     event.preventDefault()
     event.dataTransfer.dropEffect = 'move'
 
-    if (dragOverColumn !== `${projectId}-${status}`) {
-      setDragOverColumn(`${projectId}-${status}`)
+    const columnKey = `${projectId}-${status}`
+
+    if (dragOverColumn !== columnKey) {
+      setDragOverColumn(columnKey)
     }
   }
 
-  // 다른 열에 카드를 놓았을 때
+  // 카드를 다른 열에 놓기
   const handleDrop = async (
     event: DragEvent<HTMLDivElement>,
     projectId: number,
@@ -539,6 +555,26 @@ function App() {
     setDragOverColumn(null)
   }
 
+  // 우선순위 배지
+  const renderPriorityBadge = (priority: string | null) => {
+    const item = getPriority(priority)
+
+    return (
+      <span
+        style={{
+          backgroundColor: item.background,
+          color: item.color,
+          padding: '4px 9px',
+          borderRadius: '20px',
+          fontSize: '12px',
+          fontWeight: 600,
+        }}
+      >
+        {item.label}
+      </span>
+    )
+  }
+
   // 작업 카드 UI
   const renderTaskCard = (task: Task) => {
     const currentColumn = columns.find(
@@ -554,7 +590,8 @@ function App() {
         draggable={
           !isEditing &&
           updatingTaskId === null &&
-          deletingTaskId !== task.id
+          deletingTaskId !== task.id &&
+          savingTaskId !== task.id
         }
         onDragStart={(event) =>
           handleDragStart(event, task.id)
@@ -582,7 +619,18 @@ function App() {
               작업 카드 수정
             </h4>
 
+            <label
+              htmlFor={`edit-title-${task.id}`}
+              style={{
+                display: 'block',
+                marginBottom: '6px',
+              }}
+            >
+              작업 제목
+            </label>
+
             <input
+              id={`edit-title-${task.id}`}
               type="text"
               value={editTaskTitle}
               onChange={(e) =>
@@ -591,23 +639,84 @@ function App() {
               style={inputStyle}
             />
 
+            <label
+              htmlFor={`edit-description-${task.id}`}
+              style={{
+                display: 'block',
+                marginTop: '12px',
+                marginBottom: '6px',
+              }}
+            >
+              작업 설명
+            </label>
+
             <textarea
+              id={`edit-description-${task.id}`}
               value={editTaskDescription}
               onChange={(e) =>
                 setEditTaskDescription(e.target.value)
               }
               style={{
                 ...inputStyle,
-                marginTop: '10px',
                 minHeight: '75px',
               }}
+            />
+
+            <label
+              htmlFor={`edit-priority-${task.id}`}
+              style={{
+                display: 'block',
+                marginTop: '12px',
+                marginBottom: '6px',
+              }}
+            >
+              우선순위
+            </label>
+
+            <select
+              id={`edit-priority-${task.id}`}
+              value={editTaskPriority}
+              onChange={(e) =>
+                setEditTaskPriority(e.target.value)
+              }
+              style={inputStyle}
+            >
+              {priorities.map((priority) => (
+                <option
+                  key={priority.value}
+                  value={priority.value}
+                >
+                  {priority.label}
+                </option>
+              ))}
+            </select>
+
+            <label
+              htmlFor={`edit-date-${task.id}`}
+              style={{
+                display: 'block',
+                marginTop: '12px',
+                marginBottom: '6px',
+              }}
+            >
+              마감일 (비워두면 삭제)
+            </label>
+
+            <input
+              id={`edit-date-${task.id}`}
+              type="date"
+              value={editTaskDueDate}
+              onChange={(e) =>
+                setEditTaskDueDate(e.target.value)
+              }
+              style={inputStyle}
             />
 
             <div
               style={{
                 display: 'flex',
                 gap: '8px',
-                marginTop: '10px',
+                marginTop: '12px',
               }}
             >
               <button
@@ -669,6 +778,29 @@ function App() {
             >
               {task.description}
             </p>
+
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                flexWrap: 'wrap',
+                marginBottom: '12px',
+              }}
+            >
+              {renderPriorityBadge(task.priority)}
+
+              {task.dueDate && (
+                <span
+                  style={{
+                    fontSize: '12px',
+                    color: '#475569',
+                  }}
+                >
+                  📅 {task.dueDate}
+                </span>
+              )}
+            </div>
 
             <select
               aria-label={`${task.title} 상태 변경`}
@@ -971,7 +1103,6 @@ function App() {
                           'background-color 0.2s, border 0.2s',
                       }}
                     >
-                      {/* 칸반 열 제목 */}
                       <div
                         style={{
                           display: 'flex',
@@ -1002,7 +1133,6 @@ function App() {
                         </span>
                       </div>
 
-                      {/* 해당 상태의 작업 카드 */}
                       {columnTasks.length === 0 && (
                         <p
                           style={{
@@ -1020,7 +1150,6 @@ function App() {
                         renderTaskCard(task)
                       )}
 
-                      {/* 각 열에서 새 작업 추가 */}
                       <button
                         onClick={() =>
                           handleStartTask(
@@ -1060,7 +1189,18 @@ function App() {
                     새 작업 추가
                   </h4>
 
+                  <label
+                    htmlFor={`task-title-${project.id}`}
+                    style={{
+                      display: 'block',
+                      marginBottom: '6px',
+                    }}
+                  >
+                    작업 제목
+                  </label>
+
                   <input
+                    id={`task-title-${project.id}`}
                     type="text"
                     placeholder="작업 제목"
                     value={taskTitle}
@@ -1070,7 +1210,19 @@ function App() {
                     style={inputStyle}
                   />
 
+                  <label
+                    htmlFor={`task-description-${project.id}`}
+                    style={{
+                      display: 'block',
+                      marginTop: '12px',
+                      marginBottom: '6px',
+                    }}
+                  >
+                    작업 설명
+                  </label>
+
                   <textarea
+                    id={`task-description-${project.id}`}
                     placeholder="작업 설명"
                     value={taskDescription}
                     onChange={(e) =>
@@ -1078,27 +1230,83 @@ function App() {
                     }
                     style={{
                       ...inputStyle,
-                      marginTop: '10px',
                       minHeight: '75px',
                     }}
                   />
 
+                  <label
+                    htmlFor={`task-status-${project.id}`}
+                    style={{
+                      display: 'block',
+                      marginTop: '12px',
+                      marginBottom: '6px',
+                    }}
+                  >
+                    작업 상태
+                  </label>
+
                   <select
+                    id={`task-status-${project.id}`}
                     value={taskStatus}
                     onChange={(e) =>
                       setTaskStatus(e.target.value)
                     }
-                    style={{
-                      ...inputStyle,
-                      marginTop: '10px',
-                    }}
+                    style={inputStyle}
                   >
                     <option value="TODO">할 일</option>
-                    <option value="IN_PROGRESS">
-                      진행 중
-                    </option>
+                    <option value="IN_PROGRESS">진행 중</option>
                     <option value="DONE">완료</option>
                   </select>
+
+                  <label
+                    htmlFor={`task-priority-${project.id}`}
+                    style={{
+                      display: 'block',
+                      marginTop: '12px',
+                      marginBottom: '6px',
+                    }}
+                  >
+                    우선순위
+                  </label>
+
+                  <select
+                    id={`task-priority-${project.id}`}
+                    value={taskPriority}
+                    onChange={(e) =>
+                      setTaskPriority(e.target.value)
+                    }
+                    style={inputStyle}
+                  >
+                    {priorities.map((priority) => (
+                      <option
+                        key={priority.value}
+                        value={priority.value}
+                      >
+                        {priority.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  <label
+                    htmlFor={`task-date-${project.id}`}
+                    style={{
+                      display: 'block',
+                      marginTop: '12px',
+                      marginBottom: '6px',
+                    }}
+                  >
+                    마감일 (선택 사항)
+                  </label>
+
+                  <input
+                    id={`task-date-${project.id}`}
+                    type="date"
+                    value={taskDueDate}
+                    onChange={(e) =>
+                      setTaskDueDate(e.target.value)
+                    }
+                    style={inputStyle}
+                  />
 
                   <div
                     style={{

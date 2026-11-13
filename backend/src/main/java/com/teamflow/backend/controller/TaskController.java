@@ -66,6 +66,7 @@ public class TaskController {
 
         task.setTitle(task.getTitle().trim());
 
+        // 상태 기본값
         if (task.getStatus() == null ||
                 task.getStatus().isBlank()) {
             task.setStatus("TODO");
@@ -78,10 +79,24 @@ public class TaskController {
             );
         }
 
+        // 우선순위 기본값
+        if (task.getPriority() == null ||
+                task.getPriority().isBlank()) {
+            task.setPriority("MEDIUM");
+        }
+
+        if (!isValidPriority(task.getPriority())) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "올바르지 않은 우선순위입니다."
+            );
+        }
+
+        // 마감일은 선택 사항
         return taskRepository.save(task);
     }
 
-    // 작업 카드 제목과 설명 수정
+    // 작업 카드 제목, 설명, 우선순위, 마감일 수정
     @PutMapping("/{id}")
     public Task updateTask(
             @PathVariable Long id,
@@ -93,6 +108,7 @@ public class TaskController {
                         "작업 카드를 찾을 수 없습니다."
                 ));
 
+        // 제목 유효성 검사
         if (request.getTitle() == null ||
                 request.getTitle().isBlank()) {
 
@@ -102,8 +118,28 @@ public class TaskController {
             );
         }
 
+        // 우선순위 유효성 검사
+        if (request.getPriority() != null &&
+                !isValidPriority(request.getPriority())) {
+
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "올바르지 않은 우선순위입니다."
+            );
+        }
+
+        // 제목과 설명 수정
         task.setTitle(request.getTitle().trim());
         task.setDescription(request.getDescription());
+
+        // 우선순위가 전달된 경우에만 변경
+        if (request.getPriority() != null) {
+            task.setPriority(request.getPriority());
+        }
+
+        // 마감일 수정 또는 삭제
+        // null이 전달되면 기존 마감일도 삭제됨
+        task.setDueDate(request.getDueDate());
 
         return taskRepository.save(task);
     }
@@ -154,5 +190,12 @@ public class TaskController {
         return "TODO".equals(status) ||
                 "IN_PROGRESS".equals(status) ||
                 "DONE".equals(status);
+    }
+
+    // 작업 우선순위 유효성 검사
+    private boolean isValidPriority(String priority) {
+        return "HIGH".equals(priority) ||
+                "MEDIUM".equals(priority) ||
+                "LOW".equals(priority);
     }
 }
