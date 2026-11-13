@@ -95,6 +95,7 @@ function App() {
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null)
 
   const [error, setError] = useState('')
+  const [dashboardStatus, setDashboardStatus] = useState<'loading' | 'ready' | 'error'>('loading')
 
   // 최초 데이터 조회
   useEffect(() => {
@@ -126,9 +127,11 @@ function App() {
         )
 
         setTasks(taskLists.flat())
+        setDashboardStatus('ready')
       } catch (err) {
         console.error(err)
         setError('데이터를 불러오지 못했습니다.')
+        setDashboardStatus('error')
       }
     }
 
@@ -867,6 +870,21 @@ function App() {
     )
   }
 
+  const totalTasks = tasks.length
+  const statusCounts = columns.map((column) => ({
+    ...column,
+    count: tasks.filter((task) => task.status === column.status).length,
+  }))
+  const completedTasks = statusCounts.find((column) => column.status === 'DONE')?.count ?? 0
+  const completionRate = totalTasks === 0
+    ? 0
+    : Math.round((completedTasks / totalTasks) * 100)
+  const dashboardTotals = [
+    { label: '전체 프로젝트', value: `${projects.length}개` },
+    { label: '전체 작업', value: `${totalTasks}개` },
+    { label: '작업 완료율', value: `${completionRate}%` },
+  ]
+
   const searchTerm = projectSearch.trim().toLocaleLowerCase()
   const filteredProjects = projects.filter((project) =>
     project.name.toLocaleLowerCase().includes(searchTerm),
@@ -899,6 +917,79 @@ function App() {
           팀 프로젝트와 작업을 한눈에 관리하세요.
         </p>
       </header>
+
+      <section
+        aria-labelledby="dashboard-title"
+        style={{
+          backgroundColor: '#f8fafc',
+          padding: '22px',
+          borderRadius: '12px',
+          marginBottom: '32px',
+        }}
+      >
+        <h2 id="dashboard-title" style={{ marginTop: 0 }}>대시보드</h2>
+        {dashboardStatus === 'loading' && <p role="status">통계를 불러오는 중입니다.</p>}
+        {dashboardStatus === 'error' && <p role="status">통계를 불러오지 못했습니다.</p>}
+        {dashboardStatus === 'ready' && (
+          <>
+            <dl
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 140px), 1fr))',
+                gap: '12px',
+                margin: 0,
+              }}
+            >
+              {dashboardTotals.map(({ label, value }) => (
+                <div
+                  key={label}
+                  style={{
+                    backgroundColor: 'white',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    padding: '14px',
+                  }}
+                >
+                  <dt style={{ color: '#475569' }}>{label}</dt>
+                  <dd style={{ margin: '6px 0 0', fontSize: '24px', fontWeight: 700 }}>
+                    {value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+
+            <h3>작업 상태별 현황</h3>
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: '12px' }}>
+              {statusCounts.map(({ status, label, color, count }) => (
+                <li key={status}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+                    <span>{label}</span>
+                    <strong>{count}개</strong>
+                  </div>
+                  <div
+                    aria-hidden="true"
+                    style={{
+                      height: '10px',
+                      marginTop: '6px',
+                      borderRadius: '6px',
+                      backgroundColor: '#e2e8f0',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: `${totalTasks === 0 ? 0 : (count / totalTasks) * 100}%`,
+                        height: '100%',
+                        backgroundColor: color,
+                      }}
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </section>
 
       {/* 프로젝트 생성 */}
       <section
