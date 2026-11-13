@@ -30,6 +30,41 @@ const priorities = [
   { value: 'LOW', label: '낮음', color: '#15803d', background: '#dcfce7' },
 ]
 
+const dueDateAlerts = {
+  overdue: { label: '기한 초과', color: '#991b1b', background: '#fee2e2' },
+  today: { label: '오늘 마감', color: '#9a3412', background: '#ffedd5' },
+  upcoming: { label: '마감 임박', color: '#854d0e', background: '#fef9c3' },
+}
+
+const badgeStyle = {
+  padding: '4px 9px',
+  borderRadius: '20px',
+  fontSize: '12px',
+  fontWeight: 600,
+}
+
+const millisecondsPerDay = 86_400_000
+
+const getLocalCalendarDay = (date: Date) =>
+  Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / millisecondsPerDay
+
+const getDueDateAlert = (task: Task, today: number): keyof typeof dueDateAlerts | null => {
+  if (task.status === 'DONE' || !task.dueDate || !/^\d{4}-\d{2}-\d{2}$/.test(task.dueDate)) {
+    return null
+  }
+
+  const dueDate = new Date(`${task.dueDate}T00:00:00Z`)
+  if (Number.isNaN(dueDate.getTime()) || dueDate.toISOString().slice(0, 10) !== task.dueDate) {
+    return null
+  }
+
+  const daysRemaining = dueDate.getTime() / millisecondsPerDay - today
+  if (daysRemaining < 0) return 'overdue'
+  if (daysRemaining === 0) return 'today'
+  if (daysRemaining <= 3) return 'upcoming'
+  return null
+}
+
 const inputStyle = {
   padding: '10px',
   width: '100%',
@@ -96,6 +131,27 @@ function App() {
 
   const [error, setError] = useState('')
   const [dashboardStatus, setDashboardStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [today, setToday] = useState(() => getLocalCalendarDay(new Date()))
+
+  useEffect(() => {
+    let timer: number
+
+    const updateToday = () => {
+      window.clearTimeout(timer)
+      const now = new Date()
+      setToday(getLocalCalendarDay(now))
+      const nextMidnight = new Date(now)
+      nextMidnight.setHours(24, 0, 0, 0)
+      timer = window.setTimeout(updateToday, nextMidnight.getTime() - now.getTime())
+    }
+
+    updateToday()
+    window.addEventListener('focus', updateToday)
+    return () => {
+      window.clearTimeout(timer)
+      window.removeEventListener('focus', updateToday)
+    }
+  }, [])
 
   // 최초 데이터 조회
   useEffect(() => {
@@ -569,12 +625,9 @@ function App() {
     return (
       <span
         style={{
+          ...badgeStyle,
           backgroundColor: item.background,
           color: item.color,
-          padding: '4px 9px',
-          borderRadius: '20px',
-          fontSize: '12px',
-          fontWeight: 600,
         }}
       >
         {item.label}
@@ -590,6 +643,8 @@ function App() {
 
     const isDragging = draggingTaskId === task.id
     const isEditing = editingTaskId === task.id
+    const dueDateAlert = alertsByTaskId.get(task.id)
+    const dueDateBadge = dueDateAlert ? dueDateAlerts[dueDateAlert] : null
 
     return (
       <div
@@ -807,6 +862,17 @@ function App() {
                   📅 {task.dueDate}
                 </span>
               )}
+              {dueDateBadge && (
+                <span
+                  style={{
+                    ...badgeStyle,
+                    backgroundColor: dueDateBadge.background,
+                    color: dueDateBadge.color,
+                  }}
+                >
+                  {dueDateBadge.label}
+                </span>
+              )}
             </div>
 
             <select
@@ -879,10 +945,26 @@ function App() {
   const completionRate = totalTasks === 0
     ? 0
     : Math.round((completedTasks / totalTasks) * 100)
+  const alertsByTaskId = new Map<number, keyof typeof dueDateAlerts>()
+  let overdueTasks = 0
+  let upcomingTasks = 0
+  for (const task of tasks) {
+    const alert = getDueDateAlert(task, today)
+    if (!alert) continue
+    alertsByTaskId.set(task.id, alert)
+    if (alert === 'overdue') {
+      overdueTasks += 1
+    } else {
+      upcomingTasks += 1
+    }
+  }
+
   const dashboardTotals = [
     { label: '전체 프로젝트', value: `${projects.length}개` },
     { label: '전체 작업', value: `${totalTasks}개` },
     { label: '작업 완료율', value: `${completionRate}%` },
+    { label: '기한 초과 작업', value: `${overdueTasks}개` },
+    { label: '3일 이내 마감 예정 (오늘 포함)', value: `${upcomingTasks}개` },
   ]
 
   const searchTerm = projectSearch.trim().toLocaleLowerCase()
