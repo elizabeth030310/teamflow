@@ -223,6 +223,64 @@ body:has(.tf-app) {
 .tf-project-search { flex: 0 1 22rem; }
 .tf-project + .tf-project { margin-top: var(--tf-pad); }
 
+.tf-project-stats {
+  margin-top: 20px;
+  padding: clamp(12px, 2vw, 20px);
+  border: 1px solid var(--tf-border);
+  border-radius: 12px;
+  background: #f6f8fe;
+}
+
+.tf-project-stats h4 { margin: 0 0 12px; }
+
+.tf-project-stats h5 {
+  margin: 16px 0 8px;
+  font-size: 0.875rem;
+}
+
+.tf-project-counts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 100px), 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.tf-project-counts > div {
+  padding: 8px 12px;
+  border: 1px solid var(--tf-border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.tf-project-counts dt { color: var(--tf-muted); }
+
+.tf-project-counts dt span {
+  display: inline-block;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-weight: 650;
+}
+
+.tf-project-counts dd {
+  margin: 4px 0 0;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
+.tf-app .tf-project-progress-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.tf-project-progress {
+  display: block;
+  width: 100%;
+  height: 12px;
+  accent-color: var(--tf-blue);
+}
+
 .tf-board {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

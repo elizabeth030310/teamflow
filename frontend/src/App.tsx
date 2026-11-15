@@ -62,6 +62,63 @@ const getDueDateAlert = (task: Task, today: number): keyof typeof dueDateAlerts 
 const getPriority = (priority: string | null) =>
   priorities.find((item) => item.value === priority) ?? priorities[1]
 
+function ProjectStats({ project, tasks }: { project: Project; tasks: Task[] }) {
+  const statusCounts = new Map<string, number>()
+  const priorityCounts = new Map<string, number>()
+
+  for (const task of tasks) {
+    const priority = getPriority(task.priority).value
+    statusCounts.set(task.status, (statusCounts.get(task.status) ?? 0) + 1)
+    priorityCounts.set(priority, (priorityCounts.get(priority) ?? 0) + 1)
+  }
+
+  const completedTasks = statusCounts.get('DONE') ?? 0
+  const completionRate = tasks.length === 0
+    ? 0
+    : Math.round((completedTasks / tasks.length) * 100)
+
+  return (
+    <section className="tf-project-stats" aria-labelledby={`project-stats-${project.id}`}>
+      <h4 id={`project-stats-${project.id}`}>프로젝트 통계</h4>
+
+      <dl className="tf-project-counts">
+        <div>
+          <dt>전체 작업</dt>
+          <dd>{tasks.length}개</dd>
+        </div>
+        {columns.map(({ status, label }) => (
+          <div key={status}>
+            <dt>{label}</dt>
+            <dd>{statusCounts.get(status) ?? 0}개</dd>
+          </div>
+        ))}
+      </dl>
+
+      <label className="tf-project-progress-label" htmlFor={`project-progress-${project.id}`}>
+        <span>작업 완료율</span>
+        <strong>{completionRate}%</strong>
+      </label>
+      <progress
+        id={`project-progress-${project.id}`}
+        className="tf-project-progress"
+        aria-label={`${project.name} 작업 완료율`}
+        max={100}
+        value={completionRate}
+      />
+
+      <h5>우선순위별 작업</h5>
+      <dl className="tf-project-counts">
+        {priorities.map(({ value, label, color, background }) => (
+          <div key={value}>
+            <dt><span style={{ color, background }}>{label}</span></dt>
+            <dd>{priorityCounts.get(value) ?? 0}개</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  )
+}
+
 function App() {
   const [projects, setProjects] = useState<Project[]>([])
   const [projectSearch, setProjectSearch] = useState('')
@@ -1117,6 +1174,7 @@ function App() {
         ) : null}
 
         {filteredProjects.map((project) => {
+          const allProjectTasks = tasks.filter((task) => task.projectId === project.id)
           const projectTasks = filteredTasks
             .filter((task) => task.projectId === project.id)
             .sort((a, b) => a.id - b.id)
@@ -1206,6 +1264,10 @@ function App() {
                     </button>
                   </div>
                 </>
+              )}
+
+              {dashboardStatus === 'ready' && (
+                <ProjectStats project={project} tasks={allProjectTasks} />
               )}
 
               {/* 칸반 보드 */}
