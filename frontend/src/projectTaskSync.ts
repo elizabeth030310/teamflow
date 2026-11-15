@@ -7,6 +7,8 @@ export type Task = {
   priority: string | null
   dueDate: string | null
   assigneeId?: number | null
+  checklistCompleted?: number
+  checklistTotal?: number
 }
 
 export class TaskListError extends Error {
@@ -41,6 +43,7 @@ export function startProjectTaskSync(
   callbacks: {
     onTasks: (tasks: Task[]) => void
     onCommentChange: (taskId: number) => void
+    onChecklistChange: (taskId: number) => void
     onActivityRefresh: () => void
     onOpen: () => void
     onError: (failed: boolean) => void
@@ -139,8 +142,12 @@ export function startProjectTaskSync(
     connection.addEventListener('task-changed', (event: MessageEvent<string>) => {
       if (source !== connection) return
       try {
-        const change = JSON.parse(event.data) as { projectId?: number } | null
-        if (change?.projectId === projectId) scheduleRefresh()
+        const change = JSON.parse(event.data) as { projectId?: number; taskId?: number; type?: string } | null
+        if (change?.projectId !== projectId) return
+        scheduleRefresh()
+        if (change.type === 'CHECKLIST_CHANGED' && typeof change.taskId === 'number') {
+          callbacks.onChecklistChange(change.taskId)
+        }
       } catch {
         return
       }
@@ -179,7 +186,7 @@ export function startProjectTaskSync(
   }
 
   const pollingTimer = window.setInterval(() => {
-    if (!streaming) scheduleRefresh()
+    if (!streaming || connectionFailed) scheduleRefresh()
     if (!streaming || connectionFailed) scheduleActivityRefresh()
   }, 12_000)
   if (streaming) connect()

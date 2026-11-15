@@ -7,6 +7,7 @@ import { getProjectStreamLimit, loadProjectTasks, startProjectTaskSync } from '.
 import type { Task } from './projectTaskSync'
 import ProjectActivities from './ProjectActivities'
 import TaskComments from './TaskComments'
+import TaskChecklist from './TaskChecklist'
 import './TeamFlow.css'
 
 type Project = {
@@ -124,6 +125,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
   const [memberRefreshes, setMemberRefreshes] = useState(new Map<number, number>())
   const [activityRefreshes, setActivityRefreshes] = useState(new Map<number, number>())
   const [openComments, setOpenComments] = useState<{ taskId: number; revision: number } | null>(null)
+  const [openChecklist, setOpenChecklist] = useState<{ taskId: number; revision: number } | null>(null)
   const [projectSearch, setProjectSearch] = useState('')
   const [tasks, setTasks] = useState<Task[]>([])
   const [taskSearch, setTaskSearch] = useState('')
@@ -302,6 +304,11 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
         },
         onCommentChange: (taskId) => {
           setOpenComments((previous) => previous?.taskId === taskId
+            ? { taskId, revision: previous.revision + 1 }
+            : previous)
+        },
+        onChecklistChange: (taskId) => {
+          setOpenChecklist((previous) => previous?.taskId === taskId
             ? { taskId, revision: previous.revision + 1 }
             : previous)
         },
@@ -647,7 +654,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
 
       updateTasksAfterMutation(updatedTask.projectId, (prev) =>
         prev.map((task) =>
-          task.id === taskId ? updatedTask : task
+          task.id === taskId ? { ...task, ...updatedTask } : task
         )
       )
 
@@ -695,7 +702,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
 
       updateTasksAfterMutation(updatedTask.projectId, (prev) =>
         prev.map((task) =>
-          task.id === taskId ? updatedTask : task
+          task.id === taskId ? { ...task, ...updatedTask } : task
         )
       )
     } catch (err) {
@@ -852,6 +859,10 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
     const isDragging = draggingTaskId === task.id
     const isEditing = editingTaskId === task.id
     const commentPanel = openComments?.taskId === task.id ? openComments : null
+    const checklistPanel = openChecklist?.taskId === task.id ? openChecklist : null
+    const checklistTotal = task.checklistTotal ?? 0
+    const checklistCompleted = task.checklistCompleted ?? 0
+    const checklistPercent = checklistTotal ? Math.round(checklistCompleted * 100 / checklistTotal) : 0
     const dueDateAlert = alertsByTaskId.get(task.id)
     const dueDateBadge = dueDateAlert ? dueDateAlerts[dueDateAlert] : null
     const assignee = members.find((member) => member.userId === task.assigneeId)
@@ -1153,7 +1164,25 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
               >
                 {commentPanel ? '댓글 닫기' : '댓글'}
               </button>
+              <button
+                type="button"
+                aria-expanded={checklistPanel !== null}
+                aria-controls={checklistPanel ? `task-checklist-${task.id}` : undefined}
+                onClick={() => setOpenChecklist(checklistPanel ? null : { taskId: task.id, revision: 0 })}
+              >
+                체크리스트 {checklistCompleted}/{checklistTotal} ({checklistPercent}%)
+              </button>
             </div>
+            {checklistPanel && (
+              <TaskChecklist
+                key={task.id}
+                taskId={task.id}
+                revision={checklistPanel.revision}
+                connectionRevision={memberRefreshes.get(task.projectId) ?? 0}
+                onSessionExpired={onSessionExpired}
+                onChanged={() => liveTasks.current.get(task.projectId)?.invalidate()}
+              />
+            )}
             {commentPanel && (
               <TaskComments
                 taskId={task.id}

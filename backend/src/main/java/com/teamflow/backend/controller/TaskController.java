@@ -5,6 +5,7 @@ import com.teamflow.backend.entity.Project;
 import com.teamflow.backend.entity.Task;
 import com.teamflow.backend.entity.TaskActivity;
 import com.teamflow.backend.entity.User;
+import com.teamflow.backend.repository.TaskChecklistItemRepository;
 import com.teamflow.backend.repository.TaskRepository;
 import com.teamflow.backend.repository.UserRepository;
 import com.teamflow.backend.service.ProjectAccess;
@@ -20,15 +21,19 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 import tools.jackson.databind.JsonNode;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/tasks")
 public class TaskController {
 
     private final TaskRepository taskRepository;
+    private final TaskChecklistItemRepository checklistItems;
     private final TaskActivityRecorder activities;
     private final UserRepository users;
     private final ProjectAccess access;
@@ -36,21 +41,34 @@ public class TaskController {
 
     public TaskController(
             TaskRepository taskRepository,
+            TaskChecklistItemRepository checklistItems,
             TaskActivityRecorder activities,
             UserRepository users,
             ProjectAccess access,
             ApplicationEventPublisher events) {
 
         this.taskRepository = taskRepository;
+        this.checklistItems = checklistItems;
         this.activities = activities;
         this.users = users;
         this.access = access;
         this.events = events;
     }
 
+    public record TaskListItem(Long id, Long projectId, String title, String description, String status,
+                               String priority, LocalDate dueDate, Long assigneeId,
+                               long checklistCompleted, long checklistTotal) {
+        static TaskListItem from(Task task, TaskChecklistItemRepository.Progress progress) {
+            return new TaskListItem(task.getId(), task.getProjectId(), task.getTitle(), task.getDescription(),
+                    task.getStatus(), task.getPriority(), task.getDueDate(), task.getAssigneeId(),
+                    progress == null ? 0 : progress.getCompleted(), progress == null ? 0 : progress.getTotal());
+        }
+    }
+
     // 특정 프로젝트의 작업 카드 조회
     @GetMapping("/project/{projectId}")
-    public List<Task> getTasksByProject(
+    @Transactional(readOnly = true)
+    public List<TaskListItem> getTasksByProject(
             @PathVariable Long projectId,
             HttpSession session) {
 
@@ -58,7 +76,11 @@ public class TaskController {
 
         access.requireAccessible(projectId, userId);
 
-        return taskRepository.findByProjectId(projectId);
+        var progress = checklistItems.findProgressByProjectId(projectId).stream()
+                .collect(Collectors.toMap(TaskChecklistItemRepository.Progress::getTaskId, Function.identity()));
+        return taskRepository.findByProjectId(projectId).stream()
+                .map(task -> TaskListItem.from(task, progress.get(task.getId())))
+                .toList();
     }
 
     // 작업 카드 생성

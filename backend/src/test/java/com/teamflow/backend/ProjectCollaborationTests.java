@@ -296,6 +296,87 @@ class ProjectCollaborationTests {
     }
 
     @Test
+    void checklistItemsFollowTaskPermissionsAndStoreAnExplicitCompletionState() throws Exception {
+        long taskId = createTask(session(owner));
+        long otherTaskId = createTask(session(owner));
+        String path = "/api/tasks/{taskId}/checklist-items";
+        String itemPath = path + "/{itemId}";
+        Long invitationId = invite(invitee);
+
+        mvc.perform(get(path, taskId)).andExpect(status().isUnauthorized());
+        for (User denied : new User[]{invitee, outsider}) {
+            mvc.perform(get(path, taskId).with(user(denied.getEmail())).session(session(denied)))
+                    .andExpect(status().isNotFound());
+            mvc.perform(post(path, taskId).with(user(denied.getEmail())).session(session(denied))
+                            .contentType("application/json").content("{\"title\":\"Review\"}"))
+                    .andExpect(status().isNotFound());
+        }
+
+        respond(invitee, invitationId, "accept").andExpect(status().isOk());
+        MockHttpSession memberSession = session(invitee);
+        mvc.perform(get(path, taskId).with(user(invitee.getEmail())).session(memberSession))
+                .andExpect(status().isOk()).andExpect(jsonPath("$").isEmpty());
+        for (String invalid : new String[]{"{}", "{\"title\":12}", "{\"title\":\"  \"}",
+                "{\"title\":\"" + "a".repeat(201) + "\"}"}) {
+            mvc.perform(post(path, taskId).with(user(invitee.getEmail())).session(memberSession)
+                            .contentType("application/json").content(invalid))
+                    .andExpect(status().isBadRequest());
+        }
+
+        mvc.perform(post(path, taskId).with(user(owner.getEmail())).session(session(owner))
+                        .contentType("application/json").content("{\"title\":\"  Review  \",\"completed\":true}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.title").value("Review"))
+                .andExpect(jsonPath("$.completed").value(false));
+        Long itemId = jdbc.queryForObject("select id from task_checklist_items where task_id = ?", Long.class, taskId);
+
+        mvc.perform(patch(itemPath, taskId, itemId).with(user(outsider.getEmail())).session(session(outsider))
+                        .contentType("application/json").content("{\"completed\":true}"))
+                .andExpect(status().isNotFound());
+        mvc.perform(delete(itemPath, taskId, itemId).with(user(outsider.getEmail())).session(session(outsider)))
+                .andExpect(status().isNotFound());
+        mvc.perform(patch(itemPath, otherTaskId, itemId).with(user(invitee.getEmail())).session(memberSession)
+                        .contentType("application/json").content("{\"completed\":true}"))
+                .andExpect(status().isNotFound());
+        mvc.perform(delete(itemPath, otherTaskId, itemId).with(user(invitee.getEmail())).session(memberSession))
+                .andExpect(status().isNotFound());
+
+        mvc.perform(patch(itemPath, taskId, itemId).with(user(invitee.getEmail())).session(memberSession)
+                        .contentType("application/json").content("{\"completed\":\"true\"}"))
+                .andExpect(status().isBadRequest());
+        for (boolean completed : new boolean[]{true, true, false}) {
+            mvc.perform(patch(itemPath, taskId, itemId).with(user(invitee.getEmail())).session(memberSession)
+                            .contentType("application/json").content("{\"completed\":" + completed + "}"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.completed").value(completed));
+            mvc.perform(get(path, taskId).with(user(owner.getEmail())).session(session(owner)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$[0].id").value(itemId))
+                    .andExpect(jsonPath("$[0].completed").value(completed));
+        }
+
+        mvc.perform(delete(itemPath, taskId, itemId).with(user(invitee.getEmail())).session(memberSession))
+                .andExpect(status().isNoContent());
+        mvc.perform(get(path, taskId).with(user(invitee.getEmail())).session(memberSession))
+                .andExpect(status().isOk()).andExpect(jsonPath("$").isEmpty());
+    }
+
+    @Test
+    void deletingTaskRemovesItsChecklistItems() throws Exception {
+        MockHttpSession ownerSession = session(owner);
+        long taskId = createTask(ownerSession);
+        mvc.perform(post("/api/tasks/{taskId}/checklist-items", taskId)
+                        .with(user(owner.getEmail())).session(ownerSession)
+                        .contentType("application/json").content("{\"title\":\"Review\"}"))
+                .andExpect(status().isCreated());
+
+        mvc.perform(delete("/api/tasks/{id}", taskId).with(user(owner.getEmail())).session(ownerSession))
+                .andExpect(status().isNoContent());
+        tasks.flush();
+        assertThat(jdbc.queryForObject("select count(*) from task_checklist_items where task_id = ?",
+                Long.class, taskId)).isZero();
+    }
+
+    @Test
     void commentsRequireProjectAccessAndOnlyTheirAuthorCanDeleteThem() throws Exception {
         long taskId = createTask(session(owner));
         long otherTaskId = createTask(session(owner));
@@ -544,6 +625,44 @@ class ProjectCollaborationTests {
                             .contentType("application/json").content("{\"status\":\"DONE\"}"))
                     .andExpect(status().isOk());
             changeStatus(owner, ownerSession, taskId, "DONE").andExpect(status().isOk());
+            String checklistPath = "/api/tasks/{taskId}/checklist-items";
+            String checklistItemPath = checklistPath + "/{itemId}";
+            mvc.perform(get("/api/tasks/project/{id}", project.getId())
+                            .with(user(invitee.getEmail())).session(memberSession))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$[0].checklistTotal").value(0))
+                    .andExpect(jsonPath("$[0].checklistCompleted").value(0));
+            mvc.perform(post(checklistPath, taskId).with(user(owner.getEmail())).session(ownerSession)
+                            .contentType("application/json").content("{\"title\":\"private checklist title\"}"))
+                    .andExpect(status().isCreated());
+            Long itemId = jdbc.queryForObject(
+                    "select id from task_checklist_items where task_id = ?", Long.class, taskId);
+
+            TestTransaction.start();
+            mvc.perform(patch(checklistItemPath, taskId, itemId).with(user(invitee.getEmail())).session(memberSession)
+                            .contentType("application/json").content("{\"completed\":true}"))
+                    .andExpect(status().isOk());
+            TestTransaction.flagForRollback();
+            TestTransaction.end();
+
+            mvc.perform(get("/api/tasks/project/{id}", project.getId())
+                            .with(user(owner.getEmail())).session(ownerSession))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$[0].checklistTotal").value(1))
+                    .andExpect(jsonPath("$[0].checklistCompleted").value(0));
+            for (int request = 0; request < 2; request++) {
+                mvc.perform(patch(checklistItemPath, taskId, itemId).with(user(invitee.getEmail())).session(memberSession)
+                                .contentType("application/json").content("{\"completed\":true}"))
+                        .andExpect(status().isOk());
+            }
+            mvc.perform(get("/api/tasks/project/{id}", project.getId())
+                            .with(user(owner.getEmail())).session(ownerSession))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$[0].checklistTotal").value(1))
+                    .andExpect(jsonPath("$[0].checklistCompleted").value(1));
+            mvc.perform(delete(checklistItemPath, taskId, itemId).with(user(invitee.getEmail())).session(memberSession))
+                    .andExpect(status().isNoContent());
+
             TestTransaction.start();
             mvc.perform(delete("/api/tasks/{id}", taskId).with(user(owner.getEmail())).session(ownerSession))
                     .andExpect(status().isNoContent());
@@ -561,8 +680,10 @@ class ProjectCollaborationTests {
                 assertThat(content).contains("event:task-changed", "\"projectId\":" + project.getId(),
                                 "\"taskId\":" + taskId, "CREATED", "UPDATED", "STATUS_CHANGED", "DELETED")
                         .doesNotContain("\"taskId\":" + rolledBackId + ",", "private task title", "private comment body",
-                                owner.getEmail(), "assigneeId");
-                assertThat(Pattern.compile("event:task-changed").matcher(content).results().count()).isEqualTo(5);
+                                owner.getEmail(), "assigneeId", "private checklist title");
+                assertThat(Pattern.compile("event:task-changed").matcher(content).results().count()).isEqualTo(8);
+                assertThat(Pattern.compile("\"type\":\"CHECKLIST_CHANGED\"").matcher(content).results().count())
+                        .isEqualTo(3);
                 assertThat(activityEventPayloads(content)).hasSize(6)
                         .allMatch(payload -> payload.equals("{\"projectId\":" + project.getId() + "}"));
                 assertThat(Pattern.compile("event:comment-changed\\s+data:\\{[^}]+}").matcher(content).results()
