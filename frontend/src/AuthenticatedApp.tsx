@@ -121,7 +121,7 @@ function AuthenticatedApp() {
         </p>
       )}
 
-      <App />
+      <App key={user.id} userId={user.id} />
     </div>
   )
 }

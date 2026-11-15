@@ -3,7 +3,7 @@ package com.teamflow.backend.controller;
 
 import com.teamflow.backend.entity.Task;
 import com.teamflow.backend.repository.TaskRepository;
-import com.teamflow.backend.repository.ProjectRepository;
+import com.teamflow.backend.service.ProjectAccess;
 
 import jakarta.servlet.http.HttpSession;
 
@@ -19,46 +19,17 @@ import java.util.Map;
 public class TaskController {
 
     private final TaskRepository taskRepository;
-    private final ProjectRepository projectRepository;
+    private final ProjectAccess access;
 
     public TaskController(
             TaskRepository taskRepository,
-            ProjectRepository projectRepository) {
+            ProjectAccess access) {
 
         this.taskRepository = taskRepository;
-        this.projectRepository = projectRepository;
+        this.access = access;
     }
 
-    // 현재 로그인한 사용자 ID 조회
-    private Long getCurrentUserId(HttpSession session) {
-
-        Object userId = session.getAttribute("userId");
-
-        if (!(userId instanceof Long)) {
-            throw new ResponseStatusException(
-                    HttpStatus.UNAUTHORIZED,
-                    "로그인이 필요합니다."
-            );
-        }
-
-        return (Long) userId;
-    }
-
-    // 프로젝트가 현재 사용자의 것인지 확인
-    private void checkProjectOwnership(Long projectId, Long userId) {
-
-        if (projectId == null ||
-                projectRepository.findByIdAndOwnerId(projectId, userId).isEmpty()) {
-
-            throw new ResponseStatusException(
-                    HttpStatus.NOT_FOUND,
-                    "프로젝트를 찾을 수 없습니다."
-            );
-        }
-    }
-
-    // 작업이 현재 사용자의 프로젝트에 속하는지 확인
-    private Task getOwnedTask(Long taskId, Long userId) {
+    private Task getAccessibleTask(Long taskId, Long userId) {
 
         Task task = taskRepository.findById(taskId)
                 .orElseThrow(() -> new ResponseStatusException(
@@ -66,7 +37,7 @@ public class TaskController {
                         "작업 카드를 찾을 수 없습니다."
                 ));
 
-        checkProjectOwnership(task.getProjectId(), userId);
+        access.requireAccessible(task.getProjectId(), userId);
 
         return task;
     }
@@ -77,9 +48,9 @@ public class TaskController {
             @PathVariable Long projectId,
             HttpSession session) {
 
-        Long userId = getCurrentUserId(session);
+        Long userId = access.currentUserId(session);
 
-        checkProjectOwnership(projectId, userId);
+        access.requireAccessible(projectId, userId);
 
         return taskRepository.findByProjectId(projectId);
     }
@@ -91,7 +62,7 @@ public class TaskController {
             @RequestBody Task task,
             HttpSession session) {
 
-        Long userId = getCurrentUserId(session);
+        Long userId = access.currentUserId(session);
 
         if (task.getProjectId() == null ||
                 task.getTitle() == null ||
@@ -103,7 +74,7 @@ public class TaskController {
             );
         }
 
-        checkProjectOwnership(task.getProjectId(), userId);
+        access.requireAccessible(task.getProjectId(), userId);
 
         task.setTitle(task.getTitle().trim());
 
@@ -134,7 +105,8 @@ public class TaskController {
         }
 
         // 마감일은 선택 사항
-        return taskRepository.save(task);
+        return taskRepository.save(new Task(task.getProjectId(), task.getTitle(), task.getDescription(),
+                task.getStatus(), task.getPriority(), task.getDueDate()));
     }
 
     // 작업 카드 제목, 설명, 우선순위, 마감일 수정
@@ -144,9 +116,9 @@ public class TaskController {
             @RequestBody Task request,
             HttpSession session) {
 
-        Long userId = getCurrentUserId(session);
+        Long userId = access.currentUserId(session);
 
-        Task task = getOwnedTask(id, userId);
+        Task task = getAccessibleTask(id, userId);
 
         // 제목 유효성 검사
         if (request.getTitle() == null ||
@@ -191,9 +163,9 @@ public class TaskController {
             @RequestBody Map<String, String> request,
             HttpSession session) {
 
-        Long userId = getCurrentUserId(session);
+        Long userId = access.currentUserId(session);
 
-        Task task = getOwnedTask(id, userId);
+        Task task = getAccessibleTask(id, userId);
 
         String status = request.get("status");
 
@@ -216,9 +188,9 @@ public class TaskController {
             @PathVariable Long id,
             HttpSession session) {
 
-        Long userId = getCurrentUserId(session);
+        Long userId = access.currentUserId(session);
 
-        Task task = getOwnedTask(id, userId);
+        Task task = getAccessibleTask(id, userId);
 
         taskRepository.delete(task);
     }

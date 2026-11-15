@@ -1,6 +1,7 @@
 
 import { useEffect, useState } from 'react'
 import type { DragEvent } from 'react'
+import { InvitationInbox, ProjectCollaboration } from './Collaboration'
 import './TeamFlow.css'
 
 type Project = {
@@ -119,7 +120,15 @@ function ProjectStats({ project, tasks }: { project: Project; tasks: Task[] }) {
   )
 }
 
-function App() {
+async function loadProjectTasks(projectId: number): Promise<Task[]> {
+  const response = await fetch(`/api/tasks/project/${projectId}`, {
+    credentials: 'include',
+  })
+  if (!response.ok) throw new Error('작업 카드 조회 실패')
+  return response.json() as Promise<Task[]>
+}
+
+function App({ userId }: { userId: number }) {
   const [projects, setProjects] = useState<Project[]>([])
   const [projectSearch, setProjectSearch] = useState('')
   const [tasks, setTasks] = useState<Task[]>([])
@@ -191,7 +200,7 @@ function App() {
       try {
         setError('')
 
-        const projectResponse = await fetch('/api/projects')
+        const projectResponse = await fetch('/api/projects', { credentials: 'include' })
 
         if (!projectResponse.ok) {
           throw new Error('프로젝트 조회 실패')
@@ -201,17 +210,7 @@ function App() {
         setProjects(projectData)
 
         const taskLists = await Promise.all(
-          projectData.map(async (project) => {
-            const response = await fetch(
-              `/api/tasks/project/${project.id}`
-            )
-
-            if (!response.ok) {
-              throw new Error('작업 카드 조회 실패')
-            }
-
-            return (await response.json()) as Task[]
-          })
+          projectData.map((project) => loadProjectTasks(project.id))
         )
 
         setTasks(taskLists.flat())
@@ -225,6 +224,23 @@ function App() {
 
     loadData()
   }, [])
+
+  const handleAcceptInvitation = async (projectId: number) => {
+    if (projects.some((project) => project.id === projectId)) return
+
+    const response = await fetch('/api/projects', { credentials: 'include' })
+    if (!response.ok) throw new Error('공유 프로젝트 조회 실패')
+
+    const availableProjects: Project[] = await response.json()
+    const acceptedProject = availableProjects.find((project) => project.id === projectId)
+    if (!acceptedProject) throw new Error('공유 프로젝트를 찾을 수 없습니다.')
+
+    const acceptedTasks = await loadProjectTasks(projectId)
+    setProjects((previous) => previous.some((project) => project.id === projectId)
+      ? previous
+      : [...previous, acceptedProject])
+    setTasks((previous) => [...previous.filter((task) => task.projectId !== projectId), ...acceptedTasks])
+  }
 
   // 프로젝트 생성
   const handleCreateProject = async () => {
@@ -994,6 +1010,7 @@ function App() {
         </p>
         <nav aria-label="워크스페이스 바로가기">
           <a href="#dashboard-title">대시보드</a>
+          <a href="#invitations-title">받은 초대</a>
           <a href="#projects-title">내 프로젝트</a>
         </nav>
       </header>
@@ -1054,6 +1071,11 @@ function App() {
           </>
         )}
       </section>
+
+      <InvitationInbox
+        workspaceReady={dashboardStatus !== 'loading'}
+        onAccept={handleAcceptInvitation}
+      />
 
       {/* 프로젝트 생성 */}
       <div className="tf-tools">
@@ -1185,86 +1207,93 @@ function App() {
               className="tf-project"
               aria-label={project.name}
             >
-              {/* 프로젝트 정보 */}
-              {editingId === project.id ? (
-                <>
-                  <input
-                    type="text"
-                    aria-label="프로젝트 이름 수정"
-                    value={editName}
-                    onChange={(e) =>
-                      setEditName(e.target.value)
-                    }
-                  />
+              <ProjectCollaboration projectId={project.id} userId={userId}>
+                {(isOwner) => (
+                  <>
+                    {isOwner && editingId === project.id ? (
+                      <>
+                        <input
+                          type="text"
+                          aria-label="프로젝트 이름 수정"
+                          value={editName}
+                          onChange={(e) =>
+                            setEditName(e.target.value)
+                          }
+                        />
 
-                  <textarea
-                    aria-label="프로젝트 설명 수정"
-                    value={editDescription}
-                    onChange={(e) =>
-                      setEditDescription(e.target.value)
-                    }
-                    style={{
-                      marginTop: '10px',
-                    }}
-                  />
+                        <textarea
+                          aria-label="프로젝트 설명 수정"
+                          value={editDescription}
+                          onChange={(e) =>
+                            setEditDescription(e.target.value)
+                          }
+                          style={{
+                            marginTop: '10px',
+                          }}
+                        />
 
-                  <div
-                    style={{
-                      display: 'flex',
-                      gap: '8px',
-                      marginTop: '10px',
-                    }}
-                  >
-                    <button
-                      onClick={() =>
-                        handleUpdateProject(project.id)
-                      }
-                      className="tf-primary"
-                    >
-                      저장
-                    </button>
+                        <div
+                          style={{
+                            display: 'flex',
+                            gap: '8px',
+                            marginTop: '10px',
+                          }}
+                        >
+                          <button
+                            onClick={() =>
+                              handleUpdateProject(project.id)
+                            }
+                            className="tf-primary"
+                          >
+                            저장
+                          </button>
 
-                    <button onClick={handleCancelEdit}>
-                      취소
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <h3 style={{ marginTop: 0 }}>
-                    {project.name}
-                  </h3>
+                          <button onClick={handleCancelEdit}>
+                            취소
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <h3 style={{ marginTop: 0 }}>
+                          {project.name}
+                        </h3>
 
-                  <p style={{ color: '#64748b' }}>
-                    {project.description}
-                  </p>
+                        <p style={{ color: '#64748b' }}>
+                          {project.description}
+                        </p>
 
-                  <div
-                    style={{
-                      display: 'flex',
-                      gap: '8px',
-                      flexWrap: 'wrap',
-                    }}
-                  >
-                    <button
-                      onClick={() =>
-                        handleStartEdit(project)
-                      }
-                    >
-                      프로젝트 수정
-                    </button>
-
-                    <button
-                      onClick={() =>
-                        handleDeleteProject(project.id)
-                      }
-                      className="tf-danger"
-                    >
-                      프로젝트 삭제
-                    </button>
-                  </div>
-                </>
-              )}
+                        {isOwner && (
+                          <div
+                            style={{
+                              display: 'flex',
+                              gap: '8px',
+                              flexWrap: 'wrap',
+                            }}
+                          >
+                            <button
+                              onClick={() =>
+                                handleStartEdit(project)
+                              }
+                            >
+                              프로젝트 수정
+                            </button>
+        
+                            <button
+                              onClick={() =>
+                                handleDeleteProject(project.id)
+                              }
+                              className="tf-danger"
+                            >
+                              프로젝트 삭제
+                            </button>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
+              </ProjectCollaboration>
 
               {dashboardStatus === 'ready' && (
                 <ProjectStats project={project} tasks={allProjectTasks} />

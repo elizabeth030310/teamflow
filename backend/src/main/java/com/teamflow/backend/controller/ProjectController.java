@@ -2,9 +2,12 @@
 package com.teamflow.backend.controller;
 
 import com.teamflow.backend.entity.Project;
+import com.teamflow.backend.entity.ProjectMember.Status;
 import com.teamflow.backend.entity.User;
 import com.teamflow.backend.repository.ProjectRepository;
 import com.teamflow.backend.repository.UserRepository;
+
+import com.teamflow.backend.service.ProjectAccess;
 
 import jakarta.servlet.http.HttpSession;
 
@@ -20,47 +23,30 @@ public class ProjectController {
 
     private final ProjectRepository projectRepository;
     private final UserRepository userRepository;
+    private final ProjectAccess access;
 
     public ProjectController(
             ProjectRepository projectRepository,
-            UserRepository userRepository) {
+            UserRepository userRepository,
+            ProjectAccess access) {
 
         this.projectRepository = projectRepository;
         this.userRepository = userRepository;
-    }
-
-    // 현재 로그인한 사용자 ID 조회
-    private Long getCurrentUserId(HttpSession session) {
-
-        Object userId = session.getAttribute("userId");
-
-        if (!(userId instanceof Long)) {
-            throw new ResponseStatusException(
-                    HttpStatus.UNAUTHORIZED,
-                    "로그인이 필요합니다."
-            );
-        }
-
-        return (Long) userId;
-    }
-
-    // 프로젝트 소유자 확인
-    private Project getOwnedProject(Long projectId, Long userId) {
-
-        return projectRepository.findByIdAndOwnerId(projectId, userId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND,
-                        "프로젝트를 찾을 수 없습니다."
-                ));
+        this.access = access;
     }
 
     // 로그인한 사용자의 프로젝트 목록 조회
     @GetMapping
     public List<Project> getProjects(HttpSession session) {
 
-        Long userId = getCurrentUserId(session);
+        Long userId = access.currentUserId(session);
 
-        return projectRepository.findByOwnerId(userId);
+        return projectRepository.findAccessibleProjects(userId, Status.ACCEPTED);
+    }
+
+    @GetMapping("/{id}")
+    public Project getProject(@PathVariable Long id, HttpSession session) {
+        return access.requireAccessible(id, access.currentUserId(session));
     }
 
     // 프로젝트 생성
@@ -70,7 +56,7 @@ public class ProjectController {
             @RequestBody Project requestedProject,
             HttpSession session) {
 
-        Long userId = getCurrentUserId(session);
+        Long userId = access.currentUserId(session);
 
         User owner = userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(
@@ -95,9 +81,9 @@ public class ProjectController {
             @RequestBody Project updatedProject,
             HttpSession session) {
 
-        Long userId = getCurrentUserId(session);
+        Long userId = access.currentUserId(session);
 
-        Project project = getOwnedProject(id, userId);
+        Project project = access.requireOwner(id, userId);
 
         project.setName(updatedProject.getName());
         project.setDescription(updatedProject.getDescription());
@@ -112,9 +98,9 @@ public class ProjectController {
             @PathVariable Long id,
             HttpSession session) {
 
-        Long userId = getCurrentUserId(session);
+        Long userId = access.currentUserId(session);
 
-        Project project = getOwnedProject(id, userId);
+        Project project = access.requireOwner(id, userId);
 
         projectRepository.delete(project);
     }

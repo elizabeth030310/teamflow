@@ -384,6 +384,64 @@ body:has(.tf-app) {
   background: #fff4f4;
 }
 
+.tf-inbox {
+  margin-top: var(--tf-pad);
+}
+
+.tf-collaboration {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--tf-border);
+  border-radius: 12px;
+  background: #f8faff;
+}
+
+.tf-collaboration h4 {
+  margin: 0 0 8px;
+}
+
+.tf-collaboration-list {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.tf-collaboration-list li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--tf-border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.tf-collaboration-actions,
+.tf-invite-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tf-invite-form input {
+  flex: 1 1 14rem;
+}
+
+.tf-invitation-management summary {
+  width: fit-content;
+  color: var(--tf-blue);
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.tf-invitation-management form {
+  margin-block: 12px;
+}
+
 @media (max-width: 860px) {
   .tf-board { grid-template-columns: minmax(0, 1fr); }
   .tf-column { min-height: auto; }
