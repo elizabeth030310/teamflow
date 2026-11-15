@@ -11,10 +11,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.context.transaction.TestTransaction;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.WebApplicationContext;
@@ -24,6 +26,7 @@ import java.util.regex.Pattern;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -38,6 +41,7 @@ class ProjectCollaborationTests {
     @Autowired private ProjectRepository projects;
     @Autowired private ProjectMemberRepository members;
     @Autowired private TaskRepository tasks;
+    @Autowired private JdbcTemplate jdbc;
 
     private MockMvc mvc;
     private User owner;
@@ -143,6 +147,84 @@ class ProjectCollaborationTests {
         assertThat(users.existsById(invitee.getId())).isTrue();
     }
 
+    @Test
+    void taskAssigneeCanBeSetChangedAndExplicitlyCleared() throws Exception {
+        respond(invitee, invite(invitee), "accept").andExpect(status().isOk());
+        long taskId = createTask(session(owner));
+        assertThat(storedAssignee(taskId)).isNull();
+
+        changeAssignee(owner, taskId, assigneeBody(owner.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.assigneeId").value(owner.getId()));
+        changeAssignee(invitee, taskId, assigneeBody(invitee.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.assigneeId").value(invitee.getId()))
+                .andExpect(jsonPath("$.email").doesNotExist())
+                .andExpect(jsonPath("$.password").doesNotExist());
+
+        mvc.perform(put("/api/tasks/{id}", taskId).contentType("application/json")
+                        .content("{\"title\":\"Edited\"}")
+                        .with(user(invitee.getEmail())).session(session(invitee)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.assigneeId").value(invitee.getId()));
+        mvc.perform(get("/api/tasks/project/{id}", project.getId())
+                        .with(user(owner.getEmail())).session(session(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].assigneeId").value(invitee.getId()));
+        assertThat(storedAssignee(taskId)).isEqualTo(invitee.getId());
+
+        changeAssignee(invitee, taskId, "{\"assigneeId\":null}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.assigneeId").value(nullValue()));
+        assertThat(storedAssignee(taskId)).isNull();
+    }
+
+    @Test
+    void taskAssigneeRejectsIneligibleTargetsAndUnauthorizedActors() throws Exception {
+        Long invitationId = invite(invitee);
+        Project otherProject = addProject(outsider);
+        mvc.perform(post("/api/projects/{id}/invitations", otherProject.getId())
+                        .contentType("application/json").content("{\"email\":\"" + invitee.getEmail() + "\"}")
+                        .with(user(outsider.getEmail())).session(session(outsider)))
+                .andExpect(status().isCreated());
+        Long otherInvitationId = members.findByProjectIdOrderById(otherProject.getId()).getFirst().getId();
+        respond(invitee, otherInvitationId, "accept").andExpect(status().isOk());
+
+        long taskId = createTask(session(owner));
+        changeAssignee(owner, taskId, assigneeBody(owner.getId())).andExpect(status().isOk());
+        changeAssignee(invitee, taskId, "{\"assigneeId\":null}").andExpect(status().isNotFound());
+        changeAssignee(outsider, taskId, "{\"assigneeId\":null}").andExpect(status().isNotFound());
+        mvc.perform(patch("/api/tasks/{id}/assignee", taskId)
+                        .contentType("application/json").content("{\"assigneeId\":null}"))
+                .andExpect(status().isUnauthorized());
+
+        changeAssignee(owner, taskId, assigneeBody(invitee.getId())).andExpect(status().isBadRequest());
+        respond(invitee, invitationId, "reject").andExpect(status().isOk());
+        changeAssignee(owner, taskId, assigneeBody(invitee.getId())).andExpect(status().isBadRequest());
+        changeAssignee(owner, taskId, assigneeBody(outsider.getId())).andExpect(status().isBadRequest());
+        changeAssignee(owner, taskId, assigneeBody(Long.MAX_VALUE)).andExpect(status().isBadRequest());
+        for (String malformed : new String[]{"{}", "{\"assigneeId\":1.5}",
+                "{\"assigneeId\":\"1\"}", "{\"assigneeId\":9223372036854775808}"}) {
+            changeAssignee(owner, taskId, malformed).andExpect(status().isBadRequest());
+        }
+        assertThat(storedAssignee(taskId)).isEqualTo(owner.getId());
+    }
+
+    private Long storedAssignee(long taskId) {
+        tasks.flush();
+        return jdbc.queryForObject("select assignee_id from tasks where id = ?", Long.class, taskId);
+    }
+
+    private ResultActions changeAssignee(User actor, long taskId, String body) throws Exception {
+        return mvc.perform(patch("/api/tasks/{id}/assignee", taskId)
+                .contentType("application/json").content(body)
+                .with(user(actor.getEmail())).session(session(actor)));
+    }
+
+    private String assigneeBody(Long assigneeId) {
+        return "{\"assigneeId\":" + assigneeId + "}";
+    }
+
     private void assertBlocked(User user) throws Exception {
         mvc.perform(get("/api/projects").with(user(user.getEmail())).session(session(user)))
                 .andExpect(jsonPath("$").isEmpty());
@@ -205,6 +287,8 @@ class ProjectCollaborationTests {
             TestTransaction.end();
 
             long taskId = createTask(ownerSession);
+            changeAssignee(owner, taskId, assigneeBody(invitee.getId()))
+                    .andExpect(status().isOk());
             mvc.perform(put("/api/tasks/{id}", taskId).with(user(owner.getEmail())).session(ownerSession)
                             .contentType("application/json").content("{\"title\":\"private task title\"}"))
                     .andExpect(status().isOk());
@@ -218,8 +302,11 @@ class ProjectCollaborationTests {
                 String content = awaitEvent(stream, "DELETED");
                 assertThat(content).contains("event:task-changed", "\"projectId\":" + project.getId(),
                                 "\"taskId\":" + taskId, "CREATED", "UPDATED", "STATUS_CHANGED", "DELETED")
-                        .doesNotContain("\"taskId\":" + rolledBackId + ",", "private task title", owner.getEmail());
-                assertThat(Pattern.compile("event:task-changed").matcher(content).results().count()).isEqualTo(4);
+                        .doesNotContain("\"taskId\":" + rolledBackId + ",", "private task title",
+                                owner.getEmail(), "assigneeId");
+                assertThat(Pattern.compile("event:task-changed").matcher(content).results().count()).isEqualTo(5);
+                assertThat(Pattern.compile("\"type\":\"UPDATED\"").matcher(content).results().count())
+                        .isEqualTo(2);
             }
 
             members.deleteById(invitationId);

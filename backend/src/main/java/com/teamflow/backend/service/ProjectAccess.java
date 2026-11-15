@@ -34,6 +34,13 @@ public class ProjectAccess {
                 .orElseThrow(this::projectNotFound);
     }
 
+    public void requireEligibleAssignee(Long projectId, Long assigneeId) {
+        if (projectRepository.findAccessibleProject(projectId, assigneeId, Status.ACCEPTED).isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "담당자는 프로젝트 소유자 또는 초대를 수락한 멤버여야 합니다.");
+        }
+    }
+
     public Project lockOwnedProject(Long projectId, Long userId) {
         return projectRepository.findOneByIdAndOwnerId(projectId, userId)
                 .orElseThrow(this::projectNotFound);

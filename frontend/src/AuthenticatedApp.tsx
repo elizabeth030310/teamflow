@@ -1,5 +1,5 @@
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import App from './App'
 import AuthPage from './AuthPage'
 
@@ -13,6 +13,7 @@ function AuthenticatedApp() {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const expireSession = useCallback(() => setUser(null), [])
 
   useEffect(() => {
     let cancelled = false
@@ -121,7 +122,7 @@ function AuthenticatedApp() {
         </p>
       )}
 
-      <App key={user.id} userId={user.id} />
+      <App key={user.id} userId={user.id} onSessionExpired={expireSession} />
     </div>
   )
 }

@@ -13,6 +13,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
+import tools.jackson.databind.JsonNode;
 
 import java.util.List;
 import java.util.Map;
@@ -163,6 +164,34 @@ public class TaskController {
         // null이 전달되면 기존 마감일도 삭제됨
         task.setDueDate(request.getDueDate());
 
+        Task saved = taskRepository.save(task);
+        publish(saved, TaskChange.Type.UPDATED);
+        return saved;
+    }
+
+    @PatchMapping("/{id}/assignee")
+    @Transactional
+    public Task updateTaskAssignee(
+            @PathVariable Long id,
+            @RequestBody JsonNode request,
+            HttpSession session) {
+
+        Long userId = access.currentUserId(session);
+        Task task = getAccessibleTask(id, userId);
+        JsonNode assignee = request.get("assigneeId");
+
+        if (assignee == null || !(assignee.isNull() ||
+                (assignee.isIntegralNumber() && assignee.canConvertToLong()))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "담당자 ID는 정수 또는 null이어야 합니다.");
+        }
+
+        Long assigneeId = assignee.isNull() ? null : assignee.longValue();
+        if (assigneeId != null) {
+            access.requireEligibleAssignee(task.getProjectId(), assigneeId);
+        }
+
+        task.setAssigneeId(assigneeId);
         Task saved = taskRepository.save(task);
         publish(saved, TaskChange.Type.UPDATED);
         return saved;

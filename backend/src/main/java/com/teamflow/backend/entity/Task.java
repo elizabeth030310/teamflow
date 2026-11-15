@@ -6,10 +6,12 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import org.hibernate.annotations.DynamicUpdate;
 
 import java.time.LocalDate;
 
 @Entity
+@DynamicUpdate
 @Table(name = "tasks")
 public class Task {
 
@@ -34,6 +36,8 @@ public class Task {
 
     // 작업 마감일 (예: 2026-11-20)
     private LocalDate dueDate;
+
+    private Long assigneeId;
 
     // 기본 생성자
     public Task() {
@@ -134,5 +138,13 @@ public class Task {
     // 마감일 변경
     public void setDueDate(LocalDate dueDate) {
         this.dueDate = dueDate;
+    }
+
+    public Long getAssigneeId() {
+        return assigneeId;
+    }
+
+    public void setAssigneeId(Long assigneeId) {
+        this.assigneeId = assigneeId;
     }
 }

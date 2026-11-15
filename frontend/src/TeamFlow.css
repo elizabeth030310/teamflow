@@ -329,6 +329,15 @@ body:has(.tf-app) {
 .tf-task-card[draggable="true"] { cursor: grab; }
 .tf-task-card[data-dragging="true"] { opacity: 0.45; }
 
+.tf-task-assignee,
+.tf-assignee-filter {
+  margin-bottom: 12px;
+}
+
+.tf-assignee-filter {
+  max-width: 280px;
+}
+
 .tf-task-description {
   color: var(--tf-muted);
   font-size: 0.875rem;

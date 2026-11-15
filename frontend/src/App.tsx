@@ -1,23 +1,16 @@
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { DragEvent } from 'react'
 import { InvitationInbox, ProjectCollaboration } from './Collaboration'
+import type { Member } from './Collaboration'
+import { getProjectStreamLimit, loadProjectTasks, startProjectTaskSync } from './projectTaskSync'
+import type { Task } from './projectTaskSync'
 import './TeamFlow.css'
 
 type Project = {
   id: number
   name: string
   description: string
-}
-
-type Task = {
-  id: number
-  projectId: number
-  title: string
-  description: string
-  status: string
-  priority: string | null
-  dueDate: string | null
 }
 
 const columns = [
@@ -120,26 +113,19 @@ function ProjectStats({ project, tasks }: { project: Project; tasks: Task[] }) {
   )
 }
 
-async function loadProjectTasks(projectId: number, signal?: AbortSignal): Promise<Task[]> {
-  const response = await fetch(`/api/tasks/project/${projectId}`, {
-    credentials: 'include',
-    signal,
-  })
-  if (!response.ok) throw new Error('작업 카드 조회 실패')
-  return response.json() as Promise<Task[]>
-}
-
-function App({ userId }: { userId: number }) {
+function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: () => void }) {
   const [projects, setProjects] = useState<Project[]>([])
-  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null)
-  const liveProjectId = projects.find((project) => project.id === selectedProjectId)?.id
-    ?? projects[0]?.id
-  const liveTasks = useRef<{ projectId: number; invalidate: () => void; close: () => void } | null>(null)
+  const liveTasks = useRef(new Map<number, ReturnType<typeof startProjectTaskSync>>())
+  const [syncErrors, setSyncErrors] = useState(new Set<number>())
+  const [memberRefreshes, setMemberRefreshes] = useState(new Map<number, number>())
   const [projectSearch, setProjectSearch] = useState('')
   const [tasks, setTasks] = useState<Task[]>([])
   const [taskSearch, setTaskSearch] = useState('')
   const [taskStatusFilter, setTaskStatusFilter] = useState('ALL')
   const [taskPriorityFilter, setTaskPriorityFilter] = useState('ALL')
+  const [assigneeFilters, setAssigneeFilters] = useState(new Map<number, string>())
+  const pendingAssignments = useRef(new Set<number>())
+  const [assignmentStatus, setAssignmentStatus] = useState(new Map<number, string | null>())
 
   // 프로젝트 생성
   const [name, setName] = useState('')
@@ -210,20 +196,32 @@ function App({ userId }: { userId: number }) {
 
         const projectResponse = await fetch('/api/projects', { credentials: 'include', signal })
 
+        if (signal.aborted) return
+        if (projectResponse.status === 401) {
+          onSessionExpired()
+          return
+        }
+
         if (!projectResponse.ok) {
           throw new Error('프로젝트 조회 실패')
         }
 
         const projectData: Project[] = await projectResponse.json()
         if (signal.aborted) return
-        setProjects(projectData)
-
-        const taskLists = await Promise.all(
+        const taskLists = await Promise.allSettled(
           projectData.map((project) => loadProjectTasks(project.id, signal))
         )
 
         if (signal.aborted) return
-        setTasks(taskLists.flat())
+        const initialErrors = new Set<number>()
+        const initialTasks = taskLists.flatMap((result, index) => {
+          if (result.status === 'fulfilled') return result.value
+          initialErrors.add(projectData[index].id)
+          return []
+        })
+        setProjects(projectData)
+        setTasks(initialTasks)
+        setSyncErrors(initialErrors)
         setDashboardStatus('ready')
       } catch (err) {
         if (signal.aborted) return
@@ -235,92 +233,132 @@ function App({ userId }: { userId: number }) {
 
     loadData()
     return () => controller.abort()
+  }, [onSessionExpired])
+
+  const removeProject = useCallback((projectId: number) => {
+    liveTasks.current.get(projectId)?.close()
+    liveTasks.current.delete(projectId)
+    setProjects((previous) => previous.filter((project) => project.id !== projectId))
+    setTasks((previous) => previous.filter((task) => task.projectId !== projectId))
+    setAssigneeFilters((previous) => {
+      const updated = new Map(previous)
+      updated.delete(projectId)
+      return updated
+    })
   }, [])
 
-  const liveTasksReady = dashboardStatus !== 'loading'
+  useEffect(() => {
+    const subscriptions = liveTasks.current
+    return () => {
+      subscriptions.forEach((subscription) => subscription.close())
+      subscriptions.clear()
+    }
+  }, [])
+
+  const liveTasksReady = dashboardStatus === 'ready'
 
   useEffect(() => {
-    if (!liveTasksReady || liveProjectId === undefined) return
+    if (!liveTasksReady) return
 
-    const controller = new AbortController()
-    const { signal } = controller
-    const projectId = liveProjectId
-    const source = new EventSource(`/api/projects/${projectId}/events`)
-    let timer: number | undefined
-    let refreshing = false
-    let pending = false
-    let localRevision = 0
+    const subscriptions = liveTasks.current
+    const projectIds = projects.map(({ id }) => id).sort((first, second) => first - second)
+    const activeIds = new Set(projectIds)
+    const streamLimit = getProjectStreamLimit()
 
-    function scheduleRefresh() {
-      if (signal.aborted) return
-      pending = true
-      if (refreshing || timer !== undefined) return
-      timer = window.setTimeout(() => {
-        timer = undefined
-        void refresh()
-      }, 80)
+    for (const [projectId, subscription] of subscriptions) {
+      if (activeIds.has(projectId)) continue
+      subscription.close()
+      subscriptions.delete(projectId)
     }
 
-    async function refresh() {
-      if (signal.aborted) return
-      pending = false
-      refreshing = true
-      const revision = localRevision
+    projectIds.forEach((projectId, index) => {
+      const streaming = index < streamLimit
+      const existing = subscriptions.get(projectId)
+      if (existing?.streaming === streaming) return
+      existing?.close()
 
-      try {
-        const projectTasks = await loadProjectTasks(projectId, signal)
-        if (!signal.aborted && revision === localRevision) {
+      subscriptions.set(projectId, startProjectTaskSync(projectId, streaming, {
+        onTasks: (projectTasks) => {
           setTasks((previous) => [
             ...previous.filter((task) => task.projectId !== projectId),
             ...projectTasks,
           ])
-        }
-      } catch (err) {
-        if (!signal.aborted) console.error(err)
-      } finally {
-        refreshing = false
-        if (pending) scheduleRefresh()
-      }
-    }
-
-    function handleTaskChanged(event: MessageEvent<string>) {
-      try {
-        const change = JSON.parse(event.data) as { projectId?: number } | null
-        if (change?.projectId === projectId) scheduleRefresh()
-      } catch {
-        return
-      }
-    }
-
-    function close() {
-      source.removeEventListener('open', scheduleRefresh)
-      source.removeEventListener('task-changed', handleTaskChanged)
-      source.close()
-      controller.abort()
-      window.clearTimeout(timer)
-    }
-
-    source.addEventListener('open', scheduleRefresh)
-    source.addEventListener('task-changed', handleTaskChanged)
-    liveTasks.current = {
-      projectId,
-      invalidate: () => {
-        localRevision += 1
-        scheduleRefresh()
-      },
-      close,
-    }
-
-    return () => {
-      close()
-      liveTasks.current = null
-    }
-  }, [liveProjectId, liveTasksReady])
+        },
+        onOpen: () => {
+          setMemberRefreshes((previous) =>
+            new Map(previous).set(projectId, (previous.get(projectId) ?? 0) + 1))
+        },
+        onError: (failed) => {
+          setSyncErrors((previous) => {
+            if (previous.has(projectId) === failed) return previous
+            const updated = new Set(previous)
+            if (failed) updated.add(projectId)
+            else updated.delete(projectId)
+            return updated
+          })
+        },
+        onAccessError: (status) => {
+          if (status === 401) {
+            onSessionExpired()
+          } else {
+            removeProject(projectId)
+            setError('접근할 수 없는 프로젝트를 목록에서 제거했습니다.')
+          }
+        },
+      }))
+    })
+  }, [liveTasksReady, projects, onSessionExpired, removeProject])
 
   const updateTasksAfterMutation = (projectId: number, update: (previous: Task[]) => Task[]) => {
-    const subscription = liveTasks.current
-    if (subscription?.projectId === projectId) subscription.invalidate()
+    const subscription = liveTasks.current.get(projectId)
+    if (!subscription) return
+    subscription.invalidate()
     setTasks(update)
+  }
+
+  const handleUpdateAssignee = async (task: Task, assigneeId: number | null) => {
+    if ((task.assigneeId ?? null) === assigneeId || pendingAssignments.current.has(task.id)) return
+    if (updatingTaskId === task.id || deletingTaskId === task.id || savingTaskId === task.id) return
+
+    pendingAssignments.current.add(task.id)
+    setAssignmentStatus((previous) => new Map(previous).set(task.id, null))
+    let failure = ''
+
+    try {
+      const response = await fetch(`/api/tasks/${task.id}/assignee`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assigneeId }),
+      })
+      if (!response.ok) {
+        if (response.status === 401) {
+          failure = '로그인 세션이 만료되었습니다. 다시 로그인해 주세요.'
+        } else if (response.status === 403) {
+          failure = '담당자를 변경할 권한이 없습니다.'
+        } else if (response.status === 400) {
+          failure = '선택한 사용자를 배정할 수 없습니다. 멤버 목록을 새로고침해 주세요.'
+        }
+        throw new Error('담당자 변경 실패')
+      }
+
+      const updatedTask: Task = await response.json()
+      updateTasksAfterMutation(task.projectId, (previous) =>
+        previous.map((item) => item.id === task.id
+          ? { ...item, assigneeId: updatedTask.assigneeId }
+          : item)
+      )
+    } catch {
+      failure ||= '담당자를 저장하지 못했습니다. 멤버 목록을 확인하고 다시 시도해 주세요.'
+    } finally {
+      pendingAssignments.current.delete(task.id)
+      setAssignmentStatus((previous) => {
+        const next = new Map(previous)
+        if (failure) next.set(task.id, failure)
+        else next.delete(task.id)
+        return next
+      })
+    }
   }
 
   const handleAcceptInvitation = async (projectId: number) => {
@@ -446,14 +484,7 @@ function App({ userId }: { userId: number }) {
         throw new Error('프로젝트 삭제 실패')
       }
 
-      if (liveTasks.current?.projectId === id) liveTasks.current.close()
-      setProjects((prev) =>
-        prev.filter((project) => project.id !== id)
-      )
-
-      setTasks((prev) =>
-        prev.filter((task) => task.projectId !== id)
-      )
+      removeProject(id)
 
       if (taskProjectId === id) {
         handleCancelTask()
@@ -618,6 +649,7 @@ function App({ userId }: { userId: number }) {
     )
 
     if (!currentTask) return
+    if (pendingAssignments.current.has(taskId)) return
     if (currentTask.status === newStatus) return
     if (updatingTaskId !== null) return
 
@@ -655,6 +687,7 @@ function App({ userId }: { userId: number }) {
 
   // 작업 삭제
   const handleDeleteTask = async (taskId: number) => {
+    if (pendingAssignments.current.has(taskId)) return
     const projectId = tasks.find((task) => task.id === taskId)?.projectId
     if (projectId === undefined) return
 
@@ -698,6 +731,7 @@ function App({ userId }: { userId: number }) {
   ) => {
     if (
       updatingTaskId !== null ||
+      pendingAssignments.current.has(taskId) ||
       deletingTaskId === taskId ||
       savingTaskId === taskId
     ) {
@@ -789,7 +823,7 @@ function App({ userId }: { userId: number }) {
   }
 
   // 작업 카드 UI
-  const renderTaskCard = (task: Task) => {
+  const renderTaskCard = (task: Task, members: Member[], memberStatus: 'loading' | 'ready' | 'error') => {
     const currentColumn = columns.find(
       (column) => column.status === task.status
     )
@@ -798,6 +832,10 @@ function App({ userId }: { userId: number }) {
     const isEditing = editingTaskId === task.id
     const dueDateAlert = alertsByTaskId.get(task.id)
     const dueDateBadge = dueDateAlert ? dueDateAlerts[dueDateAlert] : null
+    const assignee = members.find((member) => member.userId === task.assigneeId)
+    const assigneeValue = task.assigneeId == null ? '' : String(task.assigneeId)
+    const assignment = assignmentStatus.get(task.id)
+    const assigning = assignment === null
 
     return (
       <div
@@ -806,6 +844,7 @@ function App({ userId }: { userId: number }) {
         data-dragging={isDragging}
         draggable={
           !isEditing &&
+          !assigning &&
           updatingTaskId === null &&
           deletingTaskId !== task.id &&
           savingTaskId !== task.id
@@ -998,10 +1037,38 @@ function App({ userId }: { userId: number }) {
               )}
             </div>
 
+            <div className="tf-task-assignee">
+              <label htmlFor={`assignee-${task.id}`}>담당자</label>
+              <select
+                id={`assignee-${task.id}`}
+                aria-label={`${task.title} 담당자`}
+                aria-describedby={assignment ? `assignee-error-${task.id}` : undefined}
+                value={assigneeValue}
+                disabled={memberStatus !== 'ready' || assigning || updatingTaskId === task.id || deletingTaskId === task.id}
+                onChange={(event) => {
+                  const value = event.target.value
+                  void handleUpdateAssignee(task, value === '' ? null : Number(value))
+                }}
+              >
+                <option value="">미배정</option>
+                {assigneeValue && !assignee && (
+                  <option value={assigneeValue} disabled>
+                    {memberStatus === 'loading' ? '담당자 확인 중' : '담당자 이름 확인 불가'}
+                  </option>
+                )}
+                {members.map((member) => (
+                  <option key={member.userId} value={member.userId}>{member.name}</option>
+                ))}
+              </select>
+              {assigning && <span role="status">담당자 저장 중…</span>}
+              {assignment && <p id={`assignee-error-${task.id}`} className="tf-error" role="alert">{assignment}</p>}
+            </div>
+
             <select
               aria-label={`${task.title} 상태 변경`}
               value={task.status}
               disabled={
+                assigning ||
                 updatingTaskId === task.id ||
                 deletingTaskId === task.id
               }
@@ -1031,6 +1098,7 @@ function App({ userId }: { userId: number }) {
               <button
                 onClick={() => handleStartEditTask(task)}
                 disabled={
+                  assigning ||
                   updatingTaskId === task.id ||
                   deletingTaskId === task.id
                 }
@@ -1042,6 +1110,7 @@ function App({ userId }: { userId: number }) {
               <button
                 onClick={() => handleDeleteTask(task.id)}
                 disabled={
+                  assigning ||
                   deletingTaskId === task.id ||
                   updatingTaskId === task.id
                 }
@@ -1263,6 +1332,7 @@ function App({ userId }: { userId: number }) {
                   setTaskSearch('')
                   setTaskStatusFilter('ALL')
                   setTaskPriorityFilter('ALL')
+                  setAssigneeFilters(new Map())
                 }}
               >
                 필터 초기화
@@ -1302,9 +1372,12 @@ function App({ userId }: { userId: number }) {
 
         {filteredProjects.map((project) => {
           const allProjectTasks = tasks.filter((task) => task.projectId === project.id)
-          const projectTasks = filteredTasks
+          const matchingTasks = filteredTasks
             .filter((task) => task.projectId === project.id)
             .sort((a, b) => a.id - b.id)
+          const assignedIds = [...new Set(allProjectTasks.flatMap((task) =>
+            task.assigneeId == null ? [] : [task.assigneeId]
+          ))].sort()
 
           return (
             <section
@@ -1312,15 +1385,14 @@ function App({ userId }: { userId: number }) {
               className="tf-project"
               aria-label={project.name}
             >
-              <button
-                type="button"
-                aria-pressed={project.id === liveProjectId}
-                onClick={() => setSelectedProjectId(project.id)}
-              >
-                {project.id === liveProjectId ? '실시간 동기화 선택됨' : '이 프로젝트 실시간 동기화'}
-              </button>
-              <ProjectCollaboration projectId={project.id} userId={userId}>
-                {(isOwner) => (
+              {syncErrors.has(project.id) && (
+                <p role="status">작업 동기화를 다시 시도하고 있습니다.</p>
+              )}
+              <ProjectCollaboration
+                projectId={project.id}
+                userId={userId}
+                refreshKey={`${memberRefreshes.get(project.id) ?? 0}:${assignedIds.join(',')}`}
+                renderHeader={(isOwner) => (
                   <>
                     {isOwner && editingId === project.id ? (
                       <>
@@ -1405,258 +1477,292 @@ function App({ userId }: { userId: number }) {
                     )}
                   </>
                 )}
-              </ProjectCollaboration>
-
-              {dashboardStatus === 'ready' && (
-                <ProjectStats project={project} tasks={allProjectTasks} />
-              )}
-
-              {/* 칸반 보드 */}
-              <div
-                style={{
-                  marginTop: '24px',
-                  paddingTop: '20px',
-                  borderTop: '1px solid #e2e8f0',
-                }}
               >
-                <h3>
-                  작업 보드 ({projectTasks.length})
-                </h3>
+                {(memberState) => {
+                  const members = memberState.status === 'ready' ? memberState.items : []
+                  const selectedAssignee = assigneeFilters.get(project.id) ?? 'ALL'
+                  const filterValue = selectedAssignee === 'UNASSIGNED' ||
+                    members.some((member) => String(member.userId) === selectedAssignee)
+                    ? selectedAssignee : 'ALL'
+                  const projectTasks = matchingTasks.filter((task) =>
+                    filterValue === 'ALL' ||
+                    (filterValue === 'UNASSIGNED' ? task.assigneeId == null : String(task.assigneeId) === filterValue)
+                  )
 
-                <div className="tf-board">
-                  {columns.map((column) => {
-                    const columnTasks = projectTasks.filter(
-                      (task) =>
-                        task.status === column.status
-                    )
+                  return (
+                    <>
+                      {dashboardStatus === 'ready' && (
+                        <ProjectStats project={project} tasks={allProjectTasks} />
+                      )}
 
-                    const columnKey =
-                      `${project.id}-${column.status}`
-
-                    const isDragOver =
-                      dragOverColumn === columnKey
-
-                    return (
+                      {/* 칸반 보드 */}
                       <div
-                        key={column.status}
-                        className="tf-column"
-                        data-status={column.status}
-                        data-drop-target={isDragOver}
-                        onDragOver={(event) =>
-                          handleDragOver(
-                            event,
-                            project.id,
-                            column.status
-                          )
-                        }
-                        onDrop={(event) =>
-                          handleDrop(
-                            event,
-                            project.id,
-                            column.status
-                          )
-                        }
+                        style={{
+                          marginTop: '24px',
+                          paddingTop: '20px',
+                          borderTop: '1px solid #e2e8f0',
+                        }}
                       >
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            marginBottom: '18px',
-                          }}
-                        >
-                          <h4
-                            className="tf-column-title"
-                            style={{
-                              margin: 0,
-                              color: column.color,
+                        <h3>
+                          작업 보드 ({projectTasks.length})
+                        </h3>
+                        <div className="tf-assignee-filter">
+                          <label htmlFor={`assignee-filter-${project.id}`}>담당자 필터</label>
+                          <select
+                            id={`assignee-filter-${project.id}`}
+                            aria-label={`${project.name} 담당자 필터`}
+                            value={filterValue}
+                            onChange={(event) => {
+                              const value = event.target.value
+                              setAssigneeFilters((previous) => new Map(previous).set(project.id, value))
                             }}
                           >
-                            {column.label}
-                          </h4>
-
-                          <span
-                            className="tf-badge tf-count"
-                          >
-                            {columnTasks.length}
-                          </span>
+                            <option value="ALL">전체</option>
+                            <option value="UNASSIGNED">미배정</option>
+                            {members.map((member) => (
+                              <option key={member.userId} value={member.userId}>{member.name}</option>
+                            ))}
+                          </select>
                         </div>
 
-                        {columnTasks.length === 0 && (
-                          <p className="tf-column-empty">
-                            작업이 없습니다.
-                          </p>
-                        )}
-
-                        {columnTasks.map((task) =>
-                          renderTaskCard(task)
-                        )}
-
-                        <button
-                          className="tf-add-task"
-                          aria-label={`${column.label} 열에 새 작업 추가`}
-                          onClick={() =>
-                            handleStartTask(
-                              project.id,
-                              column.status
+                        <div className="tf-board">
+                          {columns.map((column) => {
+                            const columnTasks = projectTasks.filter(
+                              (task) =>
+                                task.status === column.status
                             )
-                          }
-                        >
-                          + 새 작업 추가
-                        </button>
+
+                            const columnKey =
+                              `${project.id}-${column.status}`
+
+                            const isDragOver =
+                              dragOverColumn === columnKey
+
+                            return (
+                              <div
+                                key={column.status}
+                                className="tf-column"
+                                data-status={column.status}
+                                data-drop-target={isDragOver}
+                                onDragOver={(event) =>
+                                  handleDragOver(
+                                    event,
+                                    project.id,
+                                    column.status
+                                  )
+                                }
+                                onDrop={(event) =>
+                                  handleDrop(
+                                    event,
+                                    project.id,
+                                    column.status
+                                  )
+                                }
+                              >
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    marginBottom: '18px',
+                                  }}
+                                >
+                                  <h4
+                                    className="tf-column-title"
+                                    style={{
+                                      margin: 0,
+                                      color: column.color,
+                                    }}
+                                  >
+                                    {column.label}
+                                  </h4>
+
+                                  <span
+                                    className="tf-badge tf-count"
+                                  >
+                                    {columnTasks.length}
+                                  </span>
+                                </div>
+
+                                {columnTasks.length === 0 && (
+                                  <p className="tf-column-empty">
+                                    작업이 없습니다.
+                                  </p>
+                                )}
+
+                                {columnTasks.map((task) =>
+                                  renderTaskCard(task, members, memberState.status)
+                                )}
+
+                                <button
+                                  className="tf-add-task"
+                                  aria-label={`${column.label} 열에 새 작업 추가`}
+                                  onClick={() =>
+                                    handleStartTask(
+                                      project.id,
+                                      column.status
+                                    )
+                                  }
+                                >
+                                  + 새 작업 추가
+                                </button>
+                              </div>
+                            )
+                          })}
+                        </div>
+
+                        {/* 작업 카드 생성 입력창 */}
+                        {taskProjectId === project.id && (
+                          <div className="tf-task-form">
+                            <h4 style={{ marginTop: 0 }}>
+                              새 작업 추가
+                            </h4>
+
+                            <label
+                              htmlFor={`task-title-${project.id}`}
+                              style={{
+                                display: 'block',
+                                marginBottom: '6px',
+                              }}
+                            >
+                              작업 제목
+                            </label>
+
+                            <input
+                              id={`task-title-${project.id}`}
+                              type="text"
+                              autoFocus
+                              placeholder="작업 제목"
+                              value={taskTitle}
+                              onChange={(e) =>
+                                setTaskTitle(e.target.value)
+                              }
+                            />
+
+                            <label
+                              htmlFor={`task-description-${project.id}`}
+                              style={{
+                                display: 'block',
+                                marginTop: '12px',
+                                marginBottom: '6px',
+                              }}
+                            >
+                              작업 설명
+                            </label>
+
+                            <textarea
+                              id={`task-description-${project.id}`}
+                              placeholder="작업 설명"
+                              value={taskDescription}
+                              onChange={(e) =>
+                                setTaskDescription(e.target.value)
+                              }
+                            />
+
+                            <label
+                              htmlFor={`task-status-${project.id}`}
+                              style={{
+                                display: 'block',
+                                marginTop: '12px',
+                                marginBottom: '6px',
+                              }}
+                            >
+                              작업 상태
+                            </label>
+
+                            <select
+                              id={`task-status-${project.id}`}
+                              value={taskStatus}
+                              onChange={(e) =>
+                                setTaskStatus(e.target.value)
+                              }
+                            >
+                              <option value="TODO">할 일</option>
+                              <option value="IN_PROGRESS">진행 중</option>
+                              <option value="DONE">완료</option>
+                            </select>
+
+                            <label
+                              htmlFor={`task-priority-${project.id}`}
+                              style={{
+                                display: 'block',
+                                marginTop: '12px',
+                                marginBottom: '6px',
+                              }}
+                            >
+                              우선순위
+                            </label>
+
+                            <select
+                              id={`task-priority-${project.id}`}
+                              value={taskPriority}
+                              onChange={(e) =>
+                                setTaskPriority(e.target.value)
+                              }
+                            >
+                              {priorities.map((priority) => (
+                                <option
+                                  key={priority.value}
+                                  value={priority.value}
+                                >
+                                  {priority.label}
+                                </option>
+                              ))}
+                            </select>
+
+                            <label
+                              htmlFor={`task-date-${project.id}`}
+                              style={{
+                                display: 'block',
+                                marginTop: '12px',
+                                marginBottom: '6px',
+                              }}
+                            >
+                              마감일 (선택 사항)
+                            </label>
+
+                            <input
+                              id={`task-date-${project.id}`}
+                              type="date"
+                              value={taskDueDate}
+                              onChange={(e) =>
+                                setTaskDueDate(e.target.value)
+                              }
+                            />
+
+                            <div
+                              style={{
+                                display: 'flex',
+                                gap: '8px',
+                                marginTop: '12px',
+                              }}
+                            >
+                              <button
+                                onClick={() =>
+                                  handleCreateTask(project.id)
+                                }
+                                disabled={creatingTask}
+                                className="tf-primary"
+                              >
+                                {creatingTask
+                                  ? '추가 중...'
+                                  : '작업 추가'}
+                              </button>
+
+                              <button
+                                onClick={handleCancelTask}
+                                disabled={creatingTask}
+                              >
+                                취소
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    )
-                  })}
-                </div>
-
-                {/* 작업 카드 생성 입력창 */}
-                {taskProjectId === project.id && (
-                  <div className="tf-task-form">
-                    <h4 style={{ marginTop: 0 }}>
-                      새 작업 추가
-                    </h4>
-
-                    <label
-                      htmlFor={`task-title-${project.id}`}
-                      style={{
-                        display: 'block',
-                        marginBottom: '6px',
-                      }}
-                    >
-                      작업 제목
-                    </label>
-
-                    <input
-                      id={`task-title-${project.id}`}
-                      type="text"
-                      autoFocus
-                      placeholder="작업 제목"
-                      value={taskTitle}
-                      onChange={(e) =>
-                        setTaskTitle(e.target.value)
-                      }
-                    />
-
-                    <label
-                      htmlFor={`task-description-${project.id}`}
-                      style={{
-                        display: 'block',
-                        marginTop: '12px',
-                        marginBottom: '6px',
-                      }}
-                    >
-                      작업 설명
-                    </label>
-
-                    <textarea
-                      id={`task-description-${project.id}`}
-                      placeholder="작업 설명"
-                      value={taskDescription}
-                      onChange={(e) =>
-                        setTaskDescription(e.target.value)
-                      }
-                    />
-
-                    <label
-                      htmlFor={`task-status-${project.id}`}
-                      style={{
-                        display: 'block',
-                        marginTop: '12px',
-                        marginBottom: '6px',
-                      }}
-                    >
-                      작업 상태
-                    </label>
-
-                    <select
-                      id={`task-status-${project.id}`}
-                      value={taskStatus}
-                      onChange={(e) =>
-                        setTaskStatus(e.target.value)
-                      }
-                    >
-                      <option value="TODO">할 일</option>
-                      <option value="IN_PROGRESS">진행 중</option>
-                      <option value="DONE">완료</option>
-                    </select>
-
-                    <label
-                      htmlFor={`task-priority-${project.id}`}
-                      style={{
-                        display: 'block',
-                        marginTop: '12px',
-                        marginBottom: '6px',
-                      }}
-                    >
-                      우선순위
-                    </label>
-
-                    <select
-                      id={`task-priority-${project.id}`}
-                      value={taskPriority}
-                      onChange={(e) =>
-                        setTaskPriority(e.target.value)
-                      }
-                    >
-                      {priorities.map((priority) => (
-                        <option
-                          key={priority.value}
-                          value={priority.value}
-                        >
-                          {priority.label}
-                        </option>
-                      ))}
-                    </select>
-
-                    <label
-                      htmlFor={`task-date-${project.id}`}
-                      style={{
-                        display: 'block',
-                        marginTop: '12px',
-                        marginBottom: '6px',
-                      }}
-                    >
-                      마감일 (선택 사항)
-                    </label>
-
-                    <input
-                      id={`task-date-${project.id}`}
-                      type="date"
-                      value={taskDueDate}
-                      onChange={(e) =>
-                        setTaskDueDate(e.target.value)
-                      }
-                    />
-
-                    <div
-                      style={{
-                        display: 'flex',
-                        gap: '8px',
-                        marginTop: '12px',
-                      }}
-                    >
-                      <button
-                        onClick={() =>
-                          handleCreateTask(project.id)
-                        }
-                        disabled={creatingTask}
-                        className="tf-primary"
-                      >
-                        {creatingTask
-                          ? '추가 중...'
-                          : '작업 추가'}
-                      </button>
-
-                      <button
-                        onClick={handleCancelTask}
-                        disabled={creatingTask}
-                      >
-                        취소
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
+                    </>
+                  )
+                }}
+              </ProjectCollaboration>
             </section>
           )
         })}

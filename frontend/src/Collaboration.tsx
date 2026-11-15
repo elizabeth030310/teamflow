@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 
-type Member = {
+export type Member = {
   userId: number
   name: string
   role: 'OWNER' | 'MEMBER'
@@ -54,7 +54,7 @@ type ListState<Item> =
   | { status: 'error'; message: string }
   | { status: 'ready'; items: Item[] }
 
-function useProjectList<Item>(path: string, fallback: string) {
+function useProjectList<Item>(path: string, fallback: string, refreshKey?: string) {
   const [state, setState] = useState<ListState<Item>>({ status: 'loading' })
   const [attempt, setAttempt] = useState(0)
 
@@ -72,7 +72,7 @@ function useProjectList<Item>(path: string, fallback: string) {
       })
 
     return () => controller.abort()
-  }, [path, fallback, attempt])
+  }, [path, fallback, attempt, refreshKey])
 
   function reload() {
     setState({ status: 'loading' })
@@ -200,18 +200,20 @@ export function InvitationInbox({ workspaceReady, onAccept }: {
   )
 }
 
-export function ProjectCollaboration({ projectId, userId, children }: {
+export function ProjectCollaboration({ projectId, userId, refreshKey, renderHeader, children }: {
   projectId: number
   userId: number
-  children: (isOwner: boolean) => ReactNode
+  refreshKey: string
+  renderHeader: (isOwner: boolean) => ReactNode
+  children: (members: ListState<Member>) => ReactNode
 }) {
-  const members = useProjectList<Member>(`/${projectId}/members`, '프로젝트 멤버를 불러오지 못했습니다.')
+  const members = useProjectList<Member>(`/${projectId}/members`, '프로젝트 멤버를 불러오지 못했습니다.', refreshKey)
   const isOwner = members.state.status === 'ready' &&
     members.state.items.some((member) => member.role === 'OWNER' && member.userId === userId)
 
   return (
     <>
-      {children(isOwner)}
+      {renderHeader(isOwner)}
       <section className="tf-collaboration" aria-labelledby={`members-${projectId}`}>
         <h4 id={`members-${projectId}`}>프로젝트 멤버</h4>
         <ListFeedback state={members.state} loading="프로젝트 멤버를 불러오는 중입니다." reload={members.reload} />
@@ -225,8 +227,12 @@ export function ProjectCollaboration({ projectId, userId, children }: {
             ))}
           </ul>
         )}
+        {members.state.status === 'ready' && (
+          <button type="button" onClick={members.reload}>멤버 새로고침</button>
+        )}
         {isOwner && <ProjectInvitations projectId={projectId} />}
       </section>
+      {children(members.state)}
     </>
   )
 }
