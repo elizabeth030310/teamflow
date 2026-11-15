@@ -5,6 +5,7 @@ import { InvitationInbox, ProjectCollaboration } from './Collaboration'
 import type { Member } from './Collaboration'
 import { getProjectStreamLimit, loadProjectTasks, startProjectTaskSync } from './projectTaskSync'
 import type { Task } from './projectTaskSync'
+import TaskComments from './TaskComments'
 import './TeamFlow.css'
 
 type Project = {
@@ -118,6 +119,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
   const liveTasks = useRef(new Map<number, ReturnType<typeof startProjectTaskSync>>())
   const [syncErrors, setSyncErrors] = useState(new Set<number>())
   const [memberRefreshes, setMemberRefreshes] = useState(new Map<number, number>())
+  const [openComments, setOpenComments] = useState<{ taskId: number; revision: number } | null>(null)
   const [projectSearch, setProjectSearch] = useState('')
   const [tasks, setTasks] = useState<Task[]>([])
   const [taskSearch, setTaskSearch] = useState('')
@@ -287,6 +289,11 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
         onOpen: () => {
           setMemberRefreshes((previous) =>
             new Map(previous).set(projectId, (previous.get(projectId) ?? 0) + 1))
+        },
+        onCommentChange: (taskId) => {
+          setOpenComments((previous) => previous?.taskId === taskId
+            ? { taskId, revision: previous.revision + 1 }
+            : previous)
         },
         onError: (failed) => {
           setSyncErrors((previous) => {
@@ -830,6 +837,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
 
     const isDragging = draggingTaskId === task.id
     const isEditing = editingTaskId === task.id
+    const commentPanel = openComments?.taskId === task.id ? openComments : null
     const dueDateAlert = alertsByTaskId.get(task.id)
     const dueDateBadge = dueDateAlert ? dueDateAlerts[dueDateAlert] : null
     const assignee = members.find((member) => member.userId === task.assigneeId)
@@ -844,6 +852,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
         data-dragging={isDragging}
         draggable={
           !isEditing &&
+          !commentPanel &&
           !assigning &&
           updatingTaskId === null &&
           deletingTaskId !== task.id &&
@@ -991,7 +1000,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
                 {task.title}
               </strong>
 
-              <span
+              {!commentPanel && <span
                 aria-hidden="true"
                 title="카드를 드래그해서 이동하세요"
                 style={{
@@ -1001,7 +1010,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
                 }}
               >
                 ⠿
-              </span>
+              </span>}
             </div>
 
             {task.description && (
@@ -1121,7 +1130,25 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
                   ? '삭제 중...'
                   : '삭제'}
               </button>
+
+              <button
+                type="button"
+                aria-expanded={commentPanel !== null}
+                aria-controls={commentPanel ? `task-comments-${task.id}` : undefined}
+                onClick={() => setOpenComments(commentPanel ? null : { taskId: task.id, revision: 0 })}
+              >
+                {commentPanel ? '댓글 닫기' : '댓글'}
+              </button>
             </div>
+            {commentPanel && (
+              <TaskComments
+                taskId={task.id}
+                userId={userId}
+                revision={commentPanel.revision}
+                connectionRevision={memberRefreshes.get(task.projectId) ?? 0}
+                onSessionExpired={onSessionExpired}
+              />
+            )}
           </>
         )}
       </div>

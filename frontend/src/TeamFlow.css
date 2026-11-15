@@ -338,6 +338,35 @@ body:has(.tf-app) {
   max-width: 280px;
 }
 
+.tf-task-comments {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--tf-border);
+}
+
+.tf-task-comments :is(h5, p) { margin: 0 0 8px; }
+
+.tf-task-comments ul {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.tf-task-comments li {
+  padding: 8px;
+  border: 1px solid var(--tf-border);
+  border-radius: 8px;
+  background: #f8faff;
+  overflow-wrap: anywhere;
+}
+
+.tf-task-comments li p { white-space: pre-wrap; }
+.tf-task-comments time { color: var(--tf-muted); font-size: 0.75rem; }
+.tf-task-comments textarea { min-height: 64px; }
+.tf-task-comments form button { margin-top: 8px; }
+
 .tf-task-description {
   color: var(--tf-muted);
   font-size: 0.875rem;

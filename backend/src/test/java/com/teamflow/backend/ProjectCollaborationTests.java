@@ -5,6 +5,7 @@ import com.teamflow.backend.entity.Task;
 import com.teamflow.backend.entity.User;
 import com.teamflow.backend.repository.ProjectMemberRepository;
 import com.teamflow.backend.repository.ProjectRepository;
+import com.teamflow.backend.repository.TaskCommentRepository;
 import com.teamflow.backend.repository.TaskRepository;
 import com.teamflow.backend.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,6 +42,7 @@ class ProjectCollaborationTests {
     @Autowired private ProjectRepository projects;
     @Autowired private ProjectMemberRepository members;
     @Autowired private TaskRepository tasks;
+    @Autowired private TaskCommentRepository comments;
     @Autowired private JdbcTemplate jdbc;
 
     private MockMvc mvc;
@@ -241,6 +243,51 @@ class ProjectCollaborationTests {
     }
 
     @Test
+    void commentsRequireProjectAccessAndOnlyTheirAuthorCanDeleteThem() throws Exception {
+        long taskId = createTask(session(owner));
+        long otherTaskId = createTask(session(owner));
+        String path = "/api/tasks/{taskId}/comments";
+        String deletePath = path + "/{commentId}";
+        Long invitationId = invite(invitee);
+
+        mvc.perform(get(path, taskId)).andExpect(status().isUnauthorized());
+        for (User denied : new User[]{invitee, outsider}) {
+            mvc.perform(get(path, taskId).with(user(denied.getEmail())).session(session(denied)))
+                    .andExpect(status().isNotFound());
+        }
+        respond(invitee, invitationId, "accept").andExpect(status().isOk());
+
+        for (String invalid : new String[]{"{}", "{\"content\":12}", "{\"content\":\"  \"}",
+                "{\"content\":\"" + "a".repeat(1001) + "\"}"}) {
+            mvc.perform(post(path, taskId).with(user(invitee.getEmail())).session(session(invitee))
+                            .contentType("application/json").content(invalid))
+                    .andExpect(status().isBadRequest());
+        }
+
+        mvc.perform(post(path, taskId).with(user(invitee.getEmail())).session(session(invitee))
+                        .contentType("application/json")
+                        .content("{\"content\":\"  Hello  \",\"authorId\":" + owner.getId() + "}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.authorId").value(invitee.getId()))
+                .andExpect(jsonPath("$.content").value("Hello"));
+        Long commentId = comments.findByTaskIdOrderByCreatedAtAscIdAsc(taskId).getFirst().getId();
+
+        mvc.perform(get(path, taskId).with(user(owner.getEmail())).session(session(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(commentId));
+        mvc.perform(delete(deletePath, taskId, commentId).with(user(owner.getEmail())).session(session(owner)))
+                .andExpect(status().isForbidden());
+        mvc.perform(delete(deletePath, otherTaskId, commentId)
+                        .with(user(invitee.getEmail())).session(session(invitee)))
+                .andExpect(status().isNotFound());
+        mvc.perform(delete(deletePath, taskId, commentId).with(user(invitee.getEmail())).session(session(invitee)))
+                .andExpect(status().isNoContent());
+        mvc.perform(get(path, taskId).with(user(owner.getEmail())).session(session(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isEmpty());
+    }
+
+    @Test
     void eventStreamRequiresSessionProjectAccessAndSameOrigin() throws Exception {
         var request = get("/api/projects/{id}/events", project.getId());
         mvc.perform(request).andExpect(status().isUnauthorized());
@@ -287,6 +334,16 @@ class ProjectCollaborationTests {
             TestTransaction.end();
 
             long taskId = createTask(ownerSession);
+            TestTransaction.start();
+            postStreamTestComment(taskId, ownerSession).andExpect(status().isCreated());
+            TestTransaction.flagForRollback();
+            TestTransaction.end();
+
+            postStreamTestComment(taskId, ownerSession).andExpect(status().isCreated());
+            Long commentId = comments.findByTaskIdOrderByCreatedAtAscIdAsc(taskId).getFirst().getId();
+            mvc.perform(delete("/api/tasks/{taskId}/comments/{commentId}", taskId, commentId)
+                            .with(user(owner.getEmail())).session(ownerSession))
+                    .andExpect(status().isNoContent());
             changeAssignee(owner, taskId, assigneeBody(invitee.getId()))
                     .andExpect(status().isOk());
             mvc.perform(put("/api/tasks/{id}", taskId).with(user(owner.getEmail())).session(ownerSession)
@@ -302,9 +359,16 @@ class ProjectCollaborationTests {
                 String content = awaitEvent(stream, "DELETED");
                 assertThat(content).contains("event:task-changed", "\"projectId\":" + project.getId(),
                                 "\"taskId\":" + taskId, "CREATED", "UPDATED", "STATUS_CHANGED", "DELETED")
-                        .doesNotContain("\"taskId\":" + rolledBackId + ",", "private task title",
+                        .doesNotContain("\"taskId\":" + rolledBackId + ",", "private task title", "private comment body",
                                 owner.getEmail(), "assigneeId");
                 assertThat(Pattern.compile("event:task-changed").matcher(content).results().count()).isEqualTo(5);
+                assertThat(Pattern.compile("event:comment-changed\\s+data:\\{[^}]+}").matcher(content).results()
+                        .map(event -> event.group().substring(event.group().indexOf('{'))).toList())
+                        .hasSize(2)
+                        .allSatisfy(payload -> {
+                            assertThat(payload).contains("\"projectId\":" + project.getId(), "\"taskId\":" + taskId);
+                            assertThat(payload).doesNotContain("authorId", "commentId", "content");
+                        });
                 assertThat(Pattern.compile("\"type\":\"UPDATED\"").matcher(content).results().count())
                         .isEqualTo(2);
             }
@@ -314,7 +378,8 @@ class ProjectCollaborationTests {
             memberStream.getAsyncResult(7000);
             assertThat(memberStream.getResponse().getContentAsString()).doesNotContain("\"taskId\":" + nextTaskId + ",");
             awaitEvent(ownerStream, "\"taskId\":" + nextTaskId + ",");
-            assertThat(otherStream.getResponse().getContentAsString()).doesNotContain("event:task-changed");
+            assertThat(otherStream.getResponse().getContentAsString())
+                    .doesNotContain("event:task-changed", "event:comment-changed");
 
             mvc.perform(post("/api/auth/logout").session(ownerSession)).andExpect(status().isOk());
             ownerStream.getAsyncResult(7000);
@@ -337,6 +402,12 @@ class ProjectCollaborationTests {
             TestTransaction.flagForCommit();
             TestTransaction.end();
         }
+    }
+
+    private ResultActions postStreamTestComment(long taskId, MockHttpSession session) throws Exception {
+        return mvc.perform(post("/api/tasks/{taskId}/comments", taskId)
+                .with(user(owner.getEmail())).session(session)
+                .contentType("application/json").content("{\"content\":\"private comment body\"}"));
     }
 
     private MvcResult openStream(Project target, User user, MockHttpSession session) throws Exception {

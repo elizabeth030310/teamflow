@@ -36,19 +36,6 @@ public class TaskController {
         this.events = events;
     }
 
-    private Task getAccessibleTask(Long taskId, Long userId) {
-
-        Task task = taskRepository.findById(taskId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND,
-                        "작업 카드를 찾을 수 없습니다."
-                ));
-
-        access.requireAccessible(task.getProjectId(), userId);
-
-        return task;
-    }
-
     // 특정 프로젝트의 작업 카드 조회
     @GetMapping("/project/{projectId}")
     public List<Task> getTasksByProject(
@@ -129,7 +116,7 @@ public class TaskController {
 
         Long userId = access.currentUserId(session);
 
-        Task task = getAccessibleTask(id, userId);
+        Task task = access.requireAccessibleTask(id, userId);
 
         // 제목 유효성 검사
         if (request.getTitle() == null ||
@@ -177,7 +164,7 @@ public class TaskController {
             HttpSession session) {
 
         Long userId = access.currentUserId(session);
-        Task task = getAccessibleTask(id, userId);
+        Task task = access.requireAccessibleTask(id, userId);
         JsonNode assignee = request.get("assigneeId");
 
         if (assignee == null || !(assignee.isNull() ||
@@ -207,7 +194,7 @@ public class TaskController {
 
         Long userId = access.currentUserId(session);
 
-        Task task = getAccessibleTask(id, userId);
+        Task task = access.requireAccessibleTask(id, userId);
 
         String status = request.get("status");
 
@@ -235,7 +222,7 @@ public class TaskController {
 
         Long userId = access.currentUserId(session);
 
-        Task task = getAccessibleTask(id, userId);
+        Task task = access.requireAccessibleTask(id, userId);
 
         taskRepository.delete(task);
         publish(task, TaskChange.Type.DELETED);

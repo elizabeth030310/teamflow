@@ -2,7 +2,9 @@ package com.teamflow.backend.service;
 
 import com.teamflow.backend.entity.Project;
 import com.teamflow.backend.entity.ProjectMember.Status;
+import com.teamflow.backend.entity.Task;
 import com.teamflow.backend.repository.ProjectRepository;
+import com.teamflow.backend.repository.TaskRepository;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -12,9 +14,11 @@ import org.springframework.web.server.ResponseStatusException;
 public class ProjectAccess {
 
     private final ProjectRepository projectRepository;
+    private final TaskRepository taskRepository;
 
-    public ProjectAccess(ProjectRepository projectRepository) {
+    public ProjectAccess(ProjectRepository projectRepository, TaskRepository taskRepository) {
         this.projectRepository = projectRepository;
+        this.taskRepository = taskRepository;
     }
 
     public Long currentUserId(HttpSession session) {
@@ -32,6 +36,14 @@ public class ProjectAccess {
     public Project requireOwner(Long projectId, Long userId) {
         return projectRepository.findByIdAndOwnerId(projectId, userId)
                 .orElseThrow(this::projectNotFound);
+    }
+
+    public Task requireAccessibleTask(Long taskId, Long userId) {
+        Task task = taskRepository.findById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "작업 카드를 찾을 수 없습니다."));
+        requireAccessible(task.getProjectId(), userId);
+        return task;
     }
 
     public void requireEligibleAssignee(Long projectId, Long assigneeId) {

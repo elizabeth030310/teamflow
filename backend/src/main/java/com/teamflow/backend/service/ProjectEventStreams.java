@@ -52,8 +52,17 @@ public class ProjectEventStreams {
 
     @TransactionalEventListener
     public void onTaskChange(TaskChange event) {
+        enqueue(event.projectId(), new PendingEvent("task-changed", event));
+    }
+
+    @TransactionalEventListener
+    public void onCommentChange(CommentChange event) {
+        enqueue(event.projectId(), new PendingEvent("comment-changed", event));
+    }
+
+    private void enqueue(Long projectId, PendingEvent event) {
         for (Subscription subscription : subscriptions) {
-            if (subscription.projectId.equals(event.projectId()) && !subscription.pending.offer(event)) {
+            if (subscription.projectId.equals(projectId) && !subscription.pending.offer(event)) {
                 subscription.overflow.set(true);
             }
         }
@@ -95,11 +104,11 @@ public class ProjectEventStreams {
         }
 
         for (int delivered = 0; delivered < MAX_PENDING_EVENTS; delivered++) {
-            TaskChange event = subscription.pending.poll();
+            PendingEvent event = subscription.pending.poll();
             if (event == null) {
                 break;
             }
-            send(subscription, SseEmitter.event().name("task-changed").data(event, MediaType.APPLICATION_JSON));
+            send(subscription, SseEmitter.event().name(event.name()).data(event.data(), MediaType.APPLICATION_JSON));
         }
         if (System.nanoTime() - subscription.nextHeartbeat >= 0) {
             send(subscription, SseEmitter.event().comment("heartbeat"));
@@ -125,12 +134,15 @@ public class ProjectEventStreams {
         }
     }
 
+    private record PendingEvent(String name, Object data) {
+    }
+
     private static final class Subscription {
         private final Long projectId;
         private final Long userId;
         private final HttpSession session;
         private final SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MS);
-        private final ArrayBlockingQueue<TaskChange> pending = new ArrayBlockingQueue<>(MAX_PENDING_EVENTS);
+        private final ArrayBlockingQueue<PendingEvent> pending = new ArrayBlockingQueue<>(MAX_PENDING_EVENTS);
         private final AtomicBoolean overflow = new AtomicBoolean();
         private final AtomicBoolean delivering = new AtomicBoolean();
         private long nextHeartbeat = System.nanoTime();

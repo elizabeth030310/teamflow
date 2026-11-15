@@ -40,6 +40,7 @@ export function startProjectTaskSync(
   streaming: boolean,
   callbacks: {
     onTasks: (tasks: Task[]) => void
+    onCommentChange: (taskId: number) => void
     onOpen: () => void
     onError: (failed: boolean) => void
     onAccessError: (status: number) => void
@@ -130,6 +131,17 @@ export function startProjectTaskSync(
       try {
         const change = JSON.parse(event.data) as { projectId?: number } | null
         if (change?.projectId === projectId) scheduleRefresh()
+      } catch {
+        return
+      }
+    })
+    connection.addEventListener('comment-changed', (event: MessageEvent<string>) => {
+      if (signal.aborted || source !== connection) return
+      try {
+        const change = JSON.parse(event.data) as { projectId?: number; taskId?: number } | null
+        if (change?.projectId === projectId && typeof change.taskId === 'number') {
+          callbacks.onCommentChange(change.taskId)
+        }
       } catch {
         return
       }
