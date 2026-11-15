@@ -5,6 +5,7 @@ import { InvitationInbox, ProjectCollaboration } from './Collaboration'
 import type { Member } from './Collaboration'
 import { getProjectStreamLimit, loadProjectTasks, startProjectTaskSync } from './projectTaskSync'
 import type { Task } from './projectTaskSync'
+import ProjectActivities from './ProjectActivities'
 import TaskComments from './TaskComments'
 import './TeamFlow.css'
 
@@ -19,6 +20,8 @@ const columns = [
   { status: 'IN_PROGRESS', label: '진행 중', color: '#2563eb' },
   { status: 'DONE', label: '완료', color: '#15803d' },
 ]
+
+const statusLabels = new Map(columns.map(({ status, label }) => [status, label]))
 
 const priorities = [
   { value: 'HIGH', label: '높음', color: '#dc2626', background: '#fee2e2' },
@@ -119,6 +122,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
   const liveTasks = useRef(new Map<number, ReturnType<typeof startProjectTaskSync>>())
   const [syncErrors, setSyncErrors] = useState(new Set<number>())
   const [memberRefreshes, setMemberRefreshes] = useState(new Map<number, number>())
+  const [activityRefreshes, setActivityRefreshes] = useState(new Map<number, number>())
   const [openComments, setOpenComments] = useState<{ taskId: number; revision: number } | null>(null)
   const [projectSearch, setProjectSearch] = useState('')
   const [tasks, setTasks] = useState<Task[]>([])
@@ -242,6 +246,12 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
     liveTasks.current.delete(projectId)
     setProjects((previous) => previous.filter((project) => project.id !== projectId))
     setTasks((previous) => previous.filter((task) => task.projectId !== projectId))
+    setActivityRefreshes((previous) => {
+      if (!previous.has(projectId)) return previous
+      const updated = new Map(previous)
+      updated.delete(projectId)
+      return updated
+    })
     setAssigneeFilters((previous) => {
       const updated = new Map(previous)
       updated.delete(projectId)
@@ -294,6 +304,10 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
           setOpenComments((previous) => previous?.taskId === taskId
             ? { taskId, revision: previous.revision + 1 }
             : previous)
+        },
+        onActivityRefresh: () => {
+          setActivityRefreshes((previous) =>
+            new Map(previous).set(projectId, (previous.get(projectId) ?? 0) + 1))
         },
         onError: (failed) => {
           setSyncErrors((previous) => {
@@ -1521,6 +1535,14 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
                       {dashboardStatus === 'ready' && (
                         <ProjectStats project={project} tasks={allProjectTasks} />
                       )}
+
+                      <ProjectActivities
+                        projectId={project.id}
+                        refreshKey={activityRefreshes.get(project.id) ?? 0}
+                        members={members}
+                        statusLabels={statusLabels}
+                        onSessionExpired={onSessionExpired}
+                      />
 
                       {/* 칸반 보드 */}
                       <div

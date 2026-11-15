@@ -1,12 +1,13 @@
 package com.teamflow.backend.controller;
 
-import com.teamflow.backend.entity.Task;
+import com.teamflow.backend.entity.TaskActivity;
 import com.teamflow.backend.entity.TaskComment;
 import com.teamflow.backend.entity.User;
 import com.teamflow.backend.repository.TaskCommentRepository;
 import com.teamflow.backend.repository.UserRepository;
 import com.teamflow.backend.service.CommentChange;
 import com.teamflow.backend.service.ProjectAccess;
+import com.teamflow.backend.service.TaskActivityRecorder;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
@@ -24,13 +25,16 @@ public class TaskCommentController {
 
     private final ProjectAccess access;
     private final TaskCommentRepository comments;
+    private final TaskActivityRecorder activities;
     private final UserRepository users;
     private final ApplicationEventPublisher events;
 
-    public TaskCommentController(ProjectAccess access, TaskCommentRepository comments, UserRepository users,
+    public TaskCommentController(ProjectAccess access, TaskCommentRepository comments,
+                                 TaskActivityRecorder activities, UserRepository users,
                                  ApplicationEventPublisher events) {
         this.access = access;
         this.comments = comments;
+        this.activities = activities;
         this.users = users;
         this.events = events;
     }
@@ -59,7 +63,7 @@ public class TaskCommentController {
     public CommentResponse createComment(@PathVariable Long taskId, @RequestBody JsonNode request,
                                          HttpSession session) {
         Long userId = access.currentUserId(session);
-        Task task = access.requireAccessibleTask(taskId, userId);
+        var target = access.requireAccessibleTaskWithProject(taskId, userId);
         JsonNode contentNode = request.get("content");
         String content = contentNode != null && contentNode.isString() ? contentNode.stringValue().strip() : "";
         if (content.isEmpty() || content.codePointCount(0, content.length()) > TaskComment.MAX_CONTENT_LENGTH) {
@@ -68,8 +72,9 @@ public class TaskCommentController {
 
         User author = users.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "로그인이 필요합니다."));
-        TaskComment saved = comments.save(new TaskComment(task, author, content));
-        events.publishEvent(new CommentChange(task.getProjectId(), taskId));
+        TaskComment saved = comments.save(new TaskComment(target.task(), author, content));
+        activities.record(TaskActivity.commentCreated(target.project(), target.task(), author));
+        events.publishEvent(new CommentChange(target.project().getId(), taskId));
         return CommentResponse.from(saved);
     }
 
@@ -78,13 +83,15 @@ public class TaskCommentController {
     @Transactional
     public void deleteComment(@PathVariable Long taskId, @PathVariable Long commentId, HttpSession session) {
         Long userId = access.currentUserId(session);
-        Task task = access.requireAccessibleTask(taskId, userId);
+        var target = access.requireAccessibleTaskWithProject(taskId, userId);
         TaskComment comment = comments.findByIdAndTaskId(commentId, taskId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "댓글을 찾을 수 없습니다."));
-        if (!userId.equals(comment.getAuthor().getId())) {
+        User author = comment.getAuthor();
+        if (!userId.equals(author.getId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "댓글 작성자만 삭제할 수 있습니다.");
         }
         comments.delete(comment);
-        events.publishEvent(new CommentChange(task.getProjectId(), taskId));
+        activities.record(TaskActivity.commentDeleted(target.project(), target.task(), author));
+        events.publishEvent(new CommentChange(target.project().getId(), taskId));
     }
 }

@@ -1,9 +1,14 @@
 
 package com.teamflow.backend.controller;
 
+import com.teamflow.backend.entity.Project;
 import com.teamflow.backend.entity.Task;
+import com.teamflow.backend.entity.TaskActivity;
+import com.teamflow.backend.entity.User;
 import com.teamflow.backend.repository.TaskRepository;
+import com.teamflow.backend.repository.UserRepository;
 import com.teamflow.backend.service.ProjectAccess;
+import com.teamflow.backend.service.TaskActivityRecorder;
 import com.teamflow.backend.service.TaskChange;
 
 import jakarta.servlet.http.HttpSession;
@@ -17,21 +22,28 @@ import tools.jackson.databind.JsonNode;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 @RestController
 @RequestMapping("/api/tasks")
 public class TaskController {
 
     private final TaskRepository taskRepository;
+    private final TaskActivityRecorder activities;
+    private final UserRepository users;
     private final ProjectAccess access;
     private final ApplicationEventPublisher events;
 
     public TaskController(
             TaskRepository taskRepository,
+            TaskActivityRecorder activities,
+            UserRepository users,
             ProjectAccess access,
             ApplicationEventPublisher events) {
 
         this.taskRepository = taskRepository;
+        this.activities = activities;
+        this.users = users;
         this.access = access;
         this.events = events;
     }
@@ -69,7 +81,7 @@ public class TaskController {
             );
         }
 
-        access.requireAccessible(task.getProjectId(), userId);
+        Project project = access.requireAccessible(task.getProjectId(), userId);
 
         task.setTitle(task.getTitle().trim());
 
@@ -102,6 +114,7 @@ public class TaskController {
         // 마감일은 선택 사항
         Task saved = taskRepository.save(new Task(task.getProjectId(), task.getTitle(), task.getDescription(),
                 task.getStatus(), task.getPriority(), task.getDueDate()));
+        activities.record(TaskActivity.created(project, saved, requireActivityActor(userId)));
         publish(saved, TaskChange.Type.CREATED);
         return saved;
     }
@@ -164,7 +177,8 @@ public class TaskController {
             HttpSession session) {
 
         Long userId = access.currentUserId(session);
-        Task task = access.requireAccessibleTask(id, userId);
+        Task task = lockTaskForActivity(id);
+        Project project = access.requireAccessible(task.getProjectId(), userId);
         JsonNode assignee = request.get("assigneeId");
 
         if (assignee == null || !(assignee.isNull() ||
@@ -178,8 +192,14 @@ public class TaskController {
             access.requireEligibleAssignee(task.getProjectId(), assigneeId);
         }
 
+        Long previousAssigneeId = task.getAssigneeId();
+        if (Objects.equals(previousAssigneeId, assigneeId)) {
+            return task;
+        }
+
         task.setAssigneeId(assigneeId);
         Task saved = taskRepository.save(task);
+        activities.record(TaskActivity.assigneeChanged(project, saved, requireActivityActor(userId), previousAssigneeId));
         publish(saved, TaskChange.Type.UPDATED);
         return saved;
     }
@@ -194,7 +214,8 @@ public class TaskController {
 
         Long userId = access.currentUserId(session);
 
-        Task task = access.requireAccessibleTask(id, userId);
+        Task task = lockTaskForActivity(id);
+        Project project = access.requireAccessible(task.getProjectId(), userId);
 
         String status = request.get("status");
 
@@ -205,9 +226,14 @@ public class TaskController {
             );
         }
 
-        task.setStatus(status);
+        String previousStatus = task.getStatus();
+        if (status.equals(previousStatus)) {
+            return task;
+        }
 
+        task.setStatus(status);
         Task saved = taskRepository.save(task);
+        activities.record(TaskActivity.statusChanged(project, saved, requireActivityActor(userId), previousStatus));
         publish(saved, TaskChange.Type.STATUS_CHANGED);
         return saved;
     }
@@ -222,10 +248,22 @@ public class TaskController {
 
         Long userId = access.currentUserId(session);
 
-        Task task = access.requireAccessibleTask(id, userId);
+        Task task = lockTaskForActivity(id);
+        Project project = access.requireAccessible(task.getProjectId(), userId);
 
+        activities.record(TaskActivity.deleted(project, task, requireActivityActor(userId)));
         taskRepository.delete(task);
         publish(task, TaskChange.Type.DELETED);
+    }
+
+    private Task lockTaskForActivity(Long id) {
+        return taskRepository.findOneById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "작업 카드를 찾을 수 없습니다."));
+    }
+
+    private User requireActivityActor(Long userId) {
+        return users.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "로그인이 필요합니다."));
     }
 
     private void publish(Task task, TaskChange.Type type) {

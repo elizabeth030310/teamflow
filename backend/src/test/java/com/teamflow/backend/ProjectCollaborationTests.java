@@ -111,6 +111,17 @@ class ProjectCollaborationTests {
                 .andExpect(status().isCreated());
         assertThat(tasks.findById(unrelatedTask.getId()).orElseThrow().getTitle()).isEqualTo("Private");
         Long taskId = tasks.findByProjectId(project.getId()).getFirst().getId();
+        assertThat(jdbc.queryForList("""
+                select task_id, task_title, type, actor_id, actor_name, created_at
+                from task_activities where project_id = ?
+                """, project.getId())).singleElement().satisfies(activity -> {
+            assertThat(activity).containsEntry("task_id", taskId)
+                    .containsEntry("task_title", "Shared")
+                    .containsEntry("type", "TASK_CREATED")
+                    .containsEntry("actor_id", invitee.getId())
+                    .containsEntry("actor_name", invitee.getName());
+            assertThat(activity.get("created_at")).isNotNull();
+        });
         mvc.perform(get("/api/tasks/project/{id}", project.getId())
                         .with(user(invitee.getEmail())).session(session(invitee)))
                 .andExpect(jsonPath("$[0].title").value("Shared"));
@@ -125,6 +136,29 @@ class ProjectCollaborationTests {
                         .with(user(invitee.getEmail())).session(session(invitee)))
                 .andExpect(status().isNoContent());
         assertThat(tasks.findById(taskId)).isEmpty();
+    }
+
+    @Test
+    void recordsOnlySuccessfulStatusChangesWithPreviousStatusAndActor() throws Exception {
+        Long invitationId = invite(invitee);
+        respond(invitee, invitationId, "accept").andExpect(status().isOk());
+        long taskId = createTask(session(owner));
+
+        changeStatus(outsider, session(outsider), taskId, "DONE").andExpect(status().isNotFound());
+        changeStatus(invitee, session(invitee), taskId, "INVALID").andExpect(status().isBadRequest());
+        changeStatus(invitee, session(invitee), taskId, "IN_PROGRESS").andExpect(status().isOk());
+        changeStatus(invitee, session(invitee), taskId, "IN_PROGRESS").andExpect(status().isOk());
+        changeStatus(owner, session(owner), taskId, "DONE").andExpect(status().isOk());
+
+        assertThat(jdbc.queryForList("""
+                select previous_status, new_status, actor_id, actor_name
+                from task_activities where task_id = ? and type = 'TASK_STATUS_CHANGED' order by id
+                """, taskId)).satisfiesExactly(first -> assertThat(first)
+                        .containsEntry("previous_status", "TODO").containsEntry("new_status", "IN_PROGRESS")
+                        .containsEntry("actor_id", invitee.getId()).containsEntry("actor_name", invitee.getName()),
+                second -> assertThat(second)
+                        .containsEntry("previous_status", "IN_PROGRESS").containsEntry("new_status", "DONE")
+                        .containsEntry("actor_id", owner.getId()).containsEntry("actor_name", owner.getName()));
     }
 
     @Test
@@ -175,10 +209,26 @@ class ProjectCollaborationTests {
                 .andExpect(jsonPath("$[0].assigneeId").value(invitee.getId()));
         assertThat(storedAssignee(taskId)).isEqualTo(invitee.getId());
 
+        changeAssignee(invitee, taskId, assigneeBody(invitee.getId())).andExpect(status().isOk());
         changeAssignee(invitee, taskId, "{\"assigneeId\":null}")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.assigneeId").value(nullValue()));
+        changeAssignee(invitee, taskId, "{\"assigneeId\":null}").andExpect(status().isOk());
         assertThat(storedAssignee(taskId)).isNull();
+
+        assertThat(jdbc.queryForList("""
+                select previous_assignee_id, new_assignee_id, actor_id, actor_name
+                from task_activities where task_id = ? and type = 'TASK_ASSIGNEE_CHANGED' order by id
+                """, taskId)).satisfiesExactly(
+                assigned -> assertThat(assigned)
+                        .containsEntry("previous_assignee_id", null).containsEntry("new_assignee_id", owner.getId())
+                        .containsEntry("actor_id", owner.getId()),
+                changed -> assertThat(changed)
+                        .containsEntry("previous_assignee_id", owner.getId())
+                        .containsEntry("new_assignee_id", invitee.getId()).containsEntry("actor_id", invitee.getId()),
+                cleared -> assertThat(cleared)
+                        .containsEntry("previous_assignee_id", invitee.getId()).containsEntry("new_assignee_id", null)
+                        .containsEntry("actor_id", invitee.getId()).containsEntry("actor_name", invitee.getName()));
     }
 
     @Test
@@ -210,6 +260,9 @@ class ProjectCollaborationTests {
             changeAssignee(owner, taskId, malformed).andExpect(status().isBadRequest());
         }
         assertThat(storedAssignee(taskId)).isEqualTo(owner.getId());
+        assertThat(jdbc.queryForObject("""
+                select count(*) from task_activities where task_id = ? and type = 'TASK_ASSIGNEE_CHANGED'
+                """, Long.class, taskId)).isEqualTo(1L);
     }
 
     private Long storedAssignee(long taskId) {
@@ -282,9 +335,118 @@ class ProjectCollaborationTests {
                 .andExpect(status().isNotFound());
         mvc.perform(delete(deletePath, taskId, commentId).with(user(invitee.getEmail())).session(session(invitee)))
                 .andExpect(status().isNoContent());
+        mvc.perform(delete(deletePath, taskId, commentId).with(user(invitee.getEmail())).session(session(invitee)))
+                .andExpect(status().isNotFound());
         mvc.perform(get(path, taskId).with(user(owner.getEmail())).session(session(owner)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isEmpty());
+
+        assertThat(jdbc.queryForList("""
+                select type, task_id, actor_id, actor_name, created_at
+                from task_activities where project_id = ? and type in ('COMMENT_CREATED', 'COMMENT_DELETED')
+                order by id
+                """, project.getId())).hasSize(2).allSatisfy(activity -> {
+            assertThat(activity).containsEntry("task_id", taskId)
+                    .containsEntry("actor_id", invitee.getId()).containsEntry("actor_name", invitee.getName());
+            assertThat(activity.get("created_at")).isNotNull();
+        }).extracting(activity -> activity.get("type")).containsExactly("COMMENT_CREATED", "COMMENT_DELETED");
+    }
+
+    @Test
+    void deletingTaskKeepsItsActivityUntilProjectIsDeleted() throws Exception {
+        respond(invitee, invite(invitee), "accept").andExpect(status().isOk());
+        long taskId = createTask(session(owner));
+        postStreamTestComment(taskId, session(owner)).andExpect(status().isCreated());
+        mvc.perform(put("/api/tasks/{id}", taskId).with(user(owner.getEmail())).session(session(owner))
+                        .contentType("application/json").content("{\"title\":\"Renamed task\"}"))
+                .andExpect(status().isOk());
+
+        mvc.perform(delete("/api/tasks/{id}", taskId).with(user(outsider.getEmail())).session(session(outsider)))
+                .andExpect(status().isNotFound());
+        mvc.perform(delete("/api/tasks/{id}", taskId).with(user(invitee.getEmail())).session(session(invitee)))
+                .andExpect(status().isNoContent());
+        mvc.perform(delete("/api/tasks/{id}", taskId).with(user(invitee.getEmail())).session(session(invitee)))
+                .andExpect(status().isNotFound());
+
+        assertThat(jdbc.queryForObject("select count(*) from task_comments where task_id = ?",
+                Long.class, taskId)).isZero();
+        assertThat(jdbc.queryForList("""
+                select type, task_title, actor_id, actor_name, created_at
+                from task_activities where task_id = ? order by id
+                """, taskId)).satisfiesExactly(
+                created -> assertThat(created).containsEntry("type", "TASK_CREATED")
+                        .containsEntry("task_title", "private task title"),
+                commented -> assertThat(commented).containsEntry("type", "COMMENT_CREATED"),
+                deleted -> {
+                    assertThat(deleted).containsEntry("type", "TASK_DELETED")
+                            .containsEntry("task_title", "Renamed task")
+                            .containsEntry("actor_id", invitee.getId()).containsEntry("actor_name", invitee.getName());
+                    assertThat(deleted.get("created_at")).isNotNull();
+                });
+
+        mvc.perform(delete("/api/projects/{id}", project.getId()).with(user(owner.getEmail())).session(session(owner)))
+                .andExpect(status().isNoContent());
+        projects.flush();
+        assertThat(jdbc.queryForObject("select count(*) from task_activities where project_id = ?",
+                Long.class, project.getId())).isZero();
+    }
+
+    @Test
+    void activitiesAreVisibleOnlyToProjectMembersAndExcludeOtherProjects() throws Exception {
+        String path = "/api/projects/{projectId}/activities";
+        Long invitationId = invite(invitee);
+        Project otherProject = addProject(outsider);
+        long taskId = createTask(session(owner));
+        changeStatus(owner, session(owner), taskId, "DONE").andExpect(status().isOk());
+
+        mvc.perform(get(path, project.getId())).andExpect(status().isUnauthorized());
+        mvc.perform(get(path, project.getId()).with(user(owner.getEmail()))).andExpect(status().isUnauthorized());
+        mvc.perform(get(path, project.getId()).with(user(invitee.getEmail())).session(session(invitee)))
+                .andExpect(status().isNotFound());
+        mvc.perform(get(path, project.getId()).with(user(outsider.getEmail())).session(session(outsider)))
+                .andExpect(status().isNotFound());
+
+        mvc.perform(get(path, otherProject.getId()).with(user(outsider.getEmail())).session(session(outsider)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isEmpty());
+        respond(invitee, invitationId, "accept").andExpect(status().isOk());
+
+        for (User reader : new User[]{owner, invitee}) {
+            mvc.perform(get(path, project.getId()).with(user(reader.getEmail())).session(session(reader)))
+                    .andExpect(status().isOk())
+                    .andExpect(header().string("Cache-Control", "no-store"))
+                    .andExpect(jsonPath("$.length()").value(2))
+                    .andExpect(jsonPath("$[0].type").value("TASK_STATUS_CHANGED"))
+                    .andExpect(jsonPath("$[0].taskId").value(taskId))
+                    .andExpect(jsonPath("$[0].taskTitle").value("private task title"))
+                    .andExpect(jsonPath("$[0].actorId").value(owner.getId()))
+                    .andExpect(jsonPath("$[0].actorName").value(owner.getName()))
+                    .andExpect(jsonPath("$[0].createdAt").isString())
+                    .andExpect(jsonPath("$[0].previousStatus").value("TODO"))
+                    .andExpect(jsonPath("$[0].newStatus").value("DONE"))
+                    .andExpect(jsonPath("$[0].email").doesNotHaveJsonPath())
+                    .andExpect(jsonPath("$[0].content").doesNotHaveJsonPath())
+                    .andExpect(jsonPath("$[1].type").value("TASK_CREATED"));
+        }
+    }
+
+    @Test
+    void activitiesReturnAtMostFiftyNewestRowsWithIdBreakingTimestampTies() throws Exception {
+        long taskId = createTask(session(owner));
+        jdbc.update("""
+                insert into task_activities (project_id, task_id, task_title, type, actor_id, actor_name, created_at)
+                select ?, ?, 'Sample ' || sample_number, 'TASK_CREATED', ?, ?,
+                       case when sample_number = 51 then timestamp with time zone '2000-01-01 00:00:00+00'
+                            else timestamp with time zone '2099-01-01 00:00:00+00' end
+                from generate_series(1, 51) as samples(sample_number) order by sample_number
+                """, project.getId(), taskId, owner.getId(), owner.getName());
+
+        mvc.perform(get("/api/projects/{projectId}/activities", project.getId())
+                        .with(user(owner.getEmail())).session(session(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(50))
+                .andExpect(jsonPath("$[0].taskTitle").value("Sample 50"))
+                .andExpect(jsonPath("$[49].taskTitle").value("Sample 1"));
     }
 
     @Test
@@ -333,7 +495,17 @@ class ProjectCollaborationTests {
             TestTransaction.flagForRollback();
             TestTransaction.end();
 
+            assertThat(jdbc.queryForObject("select count(*) from task_activities where task_id = ?",
+                    Long.class, rolledBackId)).isZero();
             long taskId = createTask(ownerSession);
+            TestTransaction.start();
+            changeStatus(owner, ownerSession, taskId, "IN_PROGRESS").andExpect(status().isOk());
+            TestTransaction.flagForRollback();
+            TestTransaction.end();
+            assertThat(jdbc.queryForObject("""
+                    select count(*) from task_activities where task_id = ? and type = 'TASK_STATUS_CHANGED'
+                    """, Long.class, taskId)).isZero();
+
             TestTransaction.start();
             postStreamTestComment(taskId, ownerSession).andExpect(status().isCreated());
             TestTransaction.flagForRollback();
@@ -341,17 +513,46 @@ class ProjectCollaborationTests {
 
             postStreamTestComment(taskId, ownerSession).andExpect(status().isCreated());
             Long commentId = comments.findByTaskIdOrderByCreatedAtAscIdAsc(taskId).getFirst().getId();
+            TestTransaction.start();
             mvc.perform(delete("/api/tasks/{taskId}/comments/{commentId}", taskId, commentId)
                             .with(user(owner.getEmail())).session(ownerSession))
                     .andExpect(status().isNoContent());
+            TestTransaction.flagForRollback();
+            TestTransaction.end();
+            assertThat(jdbc.queryForList("""
+                    select type from task_activities where task_id = ? and type in ('COMMENT_CREATED', 'COMMENT_DELETED')
+                    """, String.class, taskId)).containsExactly("COMMENT_CREATED");
+
+            mvc.perform(delete("/api/tasks/{taskId}/comments/{commentId}", taskId, commentId)
+                            .with(user(owner.getEmail())).session(ownerSession))
+                    .andExpect(status().isNoContent());
+            TestTransaction.start();
+            changeAssignee(owner, taskId, assigneeBody(invitee.getId())).andExpect(status().isOk());
+            TestTransaction.flagForRollback();
+            TestTransaction.end();
+            assertThat(jdbc.queryForObject("""
+                    select count(*) from task_activities where task_id = ? and type = 'TASK_ASSIGNEE_CHANGED'
+                    """, Long.class, taskId)).isZero();
+
             changeAssignee(owner, taskId, assigneeBody(invitee.getId()))
                     .andExpect(status().isOk());
+            changeAssignee(owner, taskId, assigneeBody(invitee.getId())).andExpect(status().isOk());
             mvc.perform(put("/api/tasks/{id}", taskId).with(user(owner.getEmail())).session(ownerSession)
                             .contentType("application/json").content("{\"title\":\"private task title\"}"))
                     .andExpect(status().isOk());
             mvc.perform(patch("/api/tasks/{id}/status", taskId).with(user(owner.getEmail())).session(ownerSession)
                             .contentType("application/json").content("{\"status\":\"DONE\"}"))
                     .andExpect(status().isOk());
+            changeStatus(owner, ownerSession, taskId, "DONE").andExpect(status().isOk());
+            TestTransaction.start();
+            mvc.perform(delete("/api/tasks/{id}", taskId).with(user(owner.getEmail())).session(ownerSession))
+                    .andExpect(status().isNoContent());
+            TestTransaction.flagForRollback();
+            TestTransaction.end();
+            assertThat(jdbc.queryForObject("""
+                    select count(*) from task_activities where task_id = ? and type = 'TASK_DELETED'
+                    """, Long.class, taskId)).isZero();
+
             mvc.perform(delete("/api/tasks/{id}", taskId).with(user(owner.getEmail())).session(ownerSession))
                     .andExpect(status().isNoContent());
 
@@ -362,6 +563,8 @@ class ProjectCollaborationTests {
                         .doesNotContain("\"taskId\":" + rolledBackId + ",", "private task title", "private comment body",
                                 owner.getEmail(), "assigneeId");
                 assertThat(Pattern.compile("event:task-changed").matcher(content).results().count()).isEqualTo(5);
+                assertThat(activityEventPayloads(content)).hasSize(6)
+                        .allMatch(payload -> payload.equals("{\"projectId\":" + project.getId() + "}"));
                 assertThat(Pattern.compile("event:comment-changed\\s+data:\\{[^}]+}").matcher(content).results()
                         .map(event -> event.group().substring(event.group().indexOf('{'))).toList())
                         .hasSize(2)
@@ -377,9 +580,10 @@ class ProjectCollaborationTests {
             long nextTaskId = createTask(ownerSession);
             memberStream.getAsyncResult(7000);
             assertThat(memberStream.getResponse().getContentAsString()).doesNotContain("\"taskId\":" + nextTaskId + ",");
-            awaitEvent(ownerStream, "\"taskId\":" + nextTaskId + ",");
+            assertThat(activityEventPayloads(memberStream.getResponse().getContentAsString())).hasSize(6);
+            assertThat(activityEventPayloads(awaitEvent(ownerStream, "\"taskId\":" + nextTaskId + ","))).hasSize(7);
             assertThat(otherStream.getResponse().getContentAsString())
-                    .doesNotContain("event:task-changed", "event:comment-changed");
+                    .doesNotContain("event:task-changed", "event:comment-changed", "event:activity-changed");
 
             mvc.perform(post("/api/auth/logout").session(ownerSession)).andExpect(status().isOk());
             ownerStream.getAsyncResult(7000);
@@ -402,6 +606,17 @@ class ProjectCollaborationTests {
             TestTransaction.flagForCommit();
             TestTransaction.end();
         }
+    }
+
+    private java.util.List<String> activityEventPayloads(String content) {
+        return Pattern.compile("event:activity-changed\\s+data:(\\{[^}]+})").matcher(content).results()
+                .map(event -> event.group(1)).toList();
+    }
+
+    private ResultActions changeStatus(User actor, MockHttpSession session, long taskId, String status) throws Exception {
+        return mvc.perform(patch("/api/tasks/{id}/status", taskId)
+                .with(user(actor.getEmail())).session(session)
+                .contentType("application/json").content("{\"status\":\"" + status + "\"}"));
     }
 
     private ResultActions postStreamTestComment(long taskId, MockHttpSession session) throws Exception {

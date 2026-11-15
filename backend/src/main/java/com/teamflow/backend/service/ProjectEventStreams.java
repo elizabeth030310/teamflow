@@ -60,6 +60,11 @@ public class ProjectEventStreams {
         enqueue(event.projectId(), new PendingEvent("comment-changed", event));
     }
 
+    @TransactionalEventListener
+    public void onActivityChange(ProjectActivityChange event) {
+        enqueue(event.projectId(), new PendingEvent("activity-changed", event));
+    }
+
     private void enqueue(Long projectId, PendingEvent event) {
         for (Subscription subscription : subscriptions) {
             if (subscription.projectId.equals(projectId) && !subscription.pending.offer(event)) {

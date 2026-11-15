@@ -41,6 +41,7 @@ export function startProjectTaskSync(
   callbacks: {
     onTasks: (tasks: Task[]) => void
     onCommentChange: (taskId: number) => void
+    onActivityRefresh: () => void
     onOpen: () => void
     onError: (failed: boolean) => void
     onAccessError: (status: number) => void
@@ -50,9 +51,9 @@ export function startProjectTaskSync(
   const { signal } = controller
   let source: EventSource | undefined
   let refreshTimer: number | undefined
+  let activityTimer: number | undefined
   let reconnectTimer: number | undefined
   let openTimer: number | undefined
-  let pollingTimer: number | undefined
   let retryDelay = 1000
   let refreshing = false
   let pending = false
@@ -68,6 +69,14 @@ export function startProjectTaskSync(
       refreshTimer = undefined
       void refresh()
     }, delay)
+  }
+
+  function scheduleActivityRefresh() {
+    if (signal.aborted || activityTimer !== undefined) return
+    activityTimer = window.setTimeout(() => {
+      activityTimer = undefined
+      callbacks.onActivityRefresh()
+    }, 80)
   }
 
   async function refresh() {
@@ -125,6 +134,7 @@ export function startProjectTaskSync(
       callbacks.onOpen()
       callbacks.onError(taskFetchFailed)
       scheduleRefresh()
+      scheduleActivityRefresh()
     })
     connection.addEventListener('task-changed', (event: MessageEvent<string>) => {
       if (source !== connection) return
@@ -146,6 +156,15 @@ export function startProjectTaskSync(
         return
       }
     })
+    connection.addEventListener('activity-changed', (event: MessageEvent<string>) => {
+      if (signal.aborted || source !== connection) return
+      try {
+        const change = JSON.parse(event.data) as { projectId?: number } | null
+        if (change?.projectId === projectId) scheduleActivityRefresh()
+      } catch {
+        return
+      }
+    })
     connection.addEventListener('error', reconnect)
   }
 
@@ -153,16 +172,18 @@ export function startProjectTaskSync(
     controller.abort()
     source?.close()
     window.clearTimeout(refreshTimer)
+    window.clearTimeout(activityTimer)
     window.clearTimeout(reconnectTimer)
     window.clearTimeout(openTimer)
     window.clearInterval(pollingTimer)
   }
 
+  const pollingTimer = window.setInterval(() => {
+    if (!streaming) scheduleRefresh()
+    if (!streaming || connectionFailed) scheduleActivityRefresh()
+  }, 12_000)
   if (streaming) connect()
-  else {
-    scheduleRefresh()
-    pollingTimer = window.setInterval(() => scheduleRefresh(), 12_000)
-  }
+  else scheduleRefresh()
 
   return {
     streaming,
