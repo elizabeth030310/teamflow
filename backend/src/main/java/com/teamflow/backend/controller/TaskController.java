@@ -4,10 +4,13 @@ package com.teamflow.backend.controller;
 import com.teamflow.backend.entity.Task;
 import com.teamflow.backend.repository.TaskRepository;
 import com.teamflow.backend.service.ProjectAccess;
+import com.teamflow.backend.service.TaskChange;
 
 import jakarta.servlet.http.HttpSession;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -20,13 +23,16 @@ public class TaskController {
 
     private final TaskRepository taskRepository;
     private final ProjectAccess access;
+    private final ApplicationEventPublisher events;
 
     public TaskController(
             TaskRepository taskRepository,
-            ProjectAccess access) {
+            ProjectAccess access,
+            ApplicationEventPublisher events) {
 
         this.taskRepository = taskRepository;
         this.access = access;
+        this.events = events;
     }
 
     private Task getAccessibleTask(Long taskId, Long userId) {
@@ -58,6 +64,7 @@ public class TaskController {
     // 작업 카드 생성
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
+    @Transactional
     public Task createTask(
             @RequestBody Task task,
             HttpSession session) {
@@ -105,12 +112,15 @@ public class TaskController {
         }
 
         // 마감일은 선택 사항
-        return taskRepository.save(new Task(task.getProjectId(), task.getTitle(), task.getDescription(),
+        Task saved = taskRepository.save(new Task(task.getProjectId(), task.getTitle(), task.getDescription(),
                 task.getStatus(), task.getPriority(), task.getDueDate()));
+        publish(saved, TaskChange.Type.CREATED);
+        return saved;
     }
 
     // 작업 카드 제목, 설명, 우선순위, 마감일 수정
     @PutMapping("/{id}")
+    @Transactional
     public Task updateTask(
             @PathVariable Long id,
             @RequestBody Task request,
@@ -153,11 +163,14 @@ public class TaskController {
         // null이 전달되면 기존 마감일도 삭제됨
         task.setDueDate(request.getDueDate());
 
-        return taskRepository.save(task);
+        Task saved = taskRepository.save(task);
+        publish(saved, TaskChange.Type.UPDATED);
+        return saved;
     }
 
     // 작업 카드 상태 변경
     @PatchMapping("/{id}/status")
+    @Transactional
     public Task updateTaskStatus(
             @PathVariable Long id,
             @RequestBody Map<String, String> request,
@@ -178,12 +191,15 @@ public class TaskController {
 
         task.setStatus(status);
 
-        return taskRepository.save(task);
+        Task saved = taskRepository.save(task);
+        publish(saved, TaskChange.Type.STATUS_CHANGED);
+        return saved;
     }
 
     // 작업 카드 삭제
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Transactional
     public void deleteTask(
             @PathVariable Long id,
             HttpSession session) {
@@ -193,6 +209,11 @@ public class TaskController {
         Task task = getAccessibleTask(id, userId);
 
         taskRepository.delete(task);
+        publish(task, TaskChange.Type.DELETED);
+    }
+
+    private void publish(Task task, TaskChange.Type type) {
+        events.publishEvent(new TaskChange(task.getProjectId(), task.getId(), type));
     }
 
     // 작업 상태 유효성 검사

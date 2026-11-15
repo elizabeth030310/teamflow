@@ -1,5 +1,5 @@
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { DragEvent } from 'react'
 import { InvitationInbox, ProjectCollaboration } from './Collaboration'
 import './TeamFlow.css'
@@ -120,9 +120,10 @@ function ProjectStats({ project, tasks }: { project: Project; tasks: Task[] }) {
   )
 }
 
-async function loadProjectTasks(projectId: number): Promise<Task[]> {
+async function loadProjectTasks(projectId: number, signal?: AbortSignal): Promise<Task[]> {
   const response = await fetch(`/api/tasks/project/${projectId}`, {
     credentials: 'include',
+    signal,
   })
   if (!response.ok) throw new Error('작업 카드 조회 실패')
   return response.json() as Promise<Task[]>
@@ -130,6 +131,10 @@ async function loadProjectTasks(projectId: number): Promise<Task[]> {
 
 function App({ userId }: { userId: number }) {
   const [projects, setProjects] = useState<Project[]>([])
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null)
+  const liveProjectId = projects.find((project) => project.id === selectedProjectId)?.id
+    ?? projects[0]?.id
+  const liveTasks = useRef<{ projectId: number; invalidate: () => void; close: () => void } | null>(null)
   const [projectSearch, setProjectSearch] = useState('')
   const [tasks, setTasks] = useState<Task[]>([])
   const [taskSearch, setTaskSearch] = useState('')
@@ -196,26 +201,32 @@ function App({ userId }: { userId: number }) {
 
   // 최초 데이터 조회
   useEffect(() => {
+    const controller = new AbortController()
+    const { signal } = controller
+
     const loadData = async () => {
       try {
         setError('')
 
-        const projectResponse = await fetch('/api/projects', { credentials: 'include' })
+        const projectResponse = await fetch('/api/projects', { credentials: 'include', signal })
 
         if (!projectResponse.ok) {
           throw new Error('프로젝트 조회 실패')
         }
 
         const projectData: Project[] = await projectResponse.json()
+        if (signal.aborted) return
         setProjects(projectData)
 
         const taskLists = await Promise.all(
-          projectData.map((project) => loadProjectTasks(project.id))
+          projectData.map((project) => loadProjectTasks(project.id, signal))
         )
 
+        if (signal.aborted) return
         setTasks(taskLists.flat())
         setDashboardStatus('ready')
       } catch (err) {
+        if (signal.aborted) return
         console.error(err)
         setError('데이터를 불러오지 못했습니다.')
         setDashboardStatus('error')
@@ -223,7 +234,94 @@ function App({ userId }: { userId: number }) {
     }
 
     loadData()
+    return () => controller.abort()
   }, [])
+
+  const liveTasksReady = dashboardStatus !== 'loading'
+
+  useEffect(() => {
+    if (!liveTasksReady || liveProjectId === undefined) return
+
+    const controller = new AbortController()
+    const { signal } = controller
+    const projectId = liveProjectId
+    const source = new EventSource(`/api/projects/${projectId}/events`)
+    let timer: number | undefined
+    let refreshing = false
+    let pending = false
+    let localRevision = 0
+
+    function scheduleRefresh() {
+      if (signal.aborted) return
+      pending = true
+      if (refreshing || timer !== undefined) return
+      timer = window.setTimeout(() => {
+        timer = undefined
+        void refresh()
+      }, 80)
+    }
+
+    async function refresh() {
+      if (signal.aborted) return
+      pending = false
+      refreshing = true
+      const revision = localRevision
+
+      try {
+        const projectTasks = await loadProjectTasks(projectId, signal)
+        if (!signal.aborted && revision === localRevision) {
+          setTasks((previous) => [
+            ...previous.filter((task) => task.projectId !== projectId),
+            ...projectTasks,
+          ])
+        }
+      } catch (err) {
+        if (!signal.aborted) console.error(err)
+      } finally {
+        refreshing = false
+        if (pending) scheduleRefresh()
+      }
+    }
+
+    function handleTaskChanged(event: MessageEvent<string>) {
+      try {
+        const change = JSON.parse(event.data) as { projectId?: number } | null
+        if (change?.projectId === projectId) scheduleRefresh()
+      } catch {
+        return
+      }
+    }
+
+    function close() {
+      source.removeEventListener('open', scheduleRefresh)
+      source.removeEventListener('task-changed', handleTaskChanged)
+      source.close()
+      controller.abort()
+      window.clearTimeout(timer)
+    }
+
+    source.addEventListener('open', scheduleRefresh)
+    source.addEventListener('task-changed', handleTaskChanged)
+    liveTasks.current = {
+      projectId,
+      invalidate: () => {
+        localRevision += 1
+        scheduleRefresh()
+      },
+      close,
+    }
+
+    return () => {
+      close()
+      liveTasks.current = null
+    }
+  }, [liveProjectId, liveTasksReady])
+
+  const updateTasksAfterMutation = (projectId: number, update: (previous: Task[]) => Task[]) => {
+    const subscription = liveTasks.current
+    if (subscription?.projectId === projectId) subscription.invalidate()
+    setTasks(update)
+  }
 
   const handleAcceptInvitation = async (projectId: number) => {
     if (projects.some((project) => project.id === projectId)) return
@@ -348,6 +446,7 @@ function App({ userId }: { userId: number }) {
         throw new Error('프로젝트 삭제 실패')
       }
 
+      if (liveTasks.current?.projectId === id) liveTasks.current.close()
       setProjects((prev) =>
         prev.filter((project) => project.id !== id)
       )
@@ -433,7 +532,10 @@ function App({ userId }: { userId: number }) {
 
       const newTask: Task = await response.json()
 
-      setTasks((prev) => [...prev, newTask])
+      updateTasksAfterMutation(newTask.projectId, (prev) => [
+        ...prev.filter((task) => task.id !== newTask.id),
+        newTask,
+      ])
       handleCancelTask()
     } catch (err) {
       console.error(err)
@@ -491,7 +593,7 @@ function App({ userId }: { userId: number }) {
 
       const updatedTask: Task = await response.json()
 
-      setTasks((prev) =>
+      updateTasksAfterMutation(updatedTask.projectId, (prev) =>
         prev.map((task) =>
           task.id === taskId ? updatedTask : task
         )
@@ -538,7 +640,7 @@ function App({ userId }: { userId: number }) {
 
       const updatedTask: Task = await response.json()
 
-      setTasks((prev) =>
+      updateTasksAfterMutation(updatedTask.projectId, (prev) =>
         prev.map((task) =>
           task.id === taskId ? updatedTask : task
         )
@@ -553,6 +655,9 @@ function App({ userId }: { userId: number }) {
 
   // 작업 삭제
   const handleDeleteTask = async (taskId: number) => {
+    const projectId = tasks.find((task) => task.id === taskId)?.projectId
+    if (projectId === undefined) return
+
     const confirmed = window.confirm(
       '정말 이 작업 카드를 삭제하시겠습니까?'
     )
@@ -571,7 +676,7 @@ function App({ userId }: { userId: number }) {
         throw new Error('작업 카드 삭제 실패')
       }
 
-      setTasks((prev) =>
+      updateTasksAfterMutation(projectId, (prev) =>
         prev.filter((task) => task.id !== taskId)
       )
 
@@ -1207,6 +1312,13 @@ function App({ userId }: { userId: number }) {
               className="tf-project"
               aria-label={project.name}
             >
+              <button
+                type="button"
+                aria-pressed={project.id === liveProjectId}
+                onClick={() => setSelectedProjectId(project.id)}
+              >
+                {project.id === liveProjectId ? '실시간 동기화 선택됨' : '이 프로젝트 실시간 동기화'}
+              </button>
               <ProjectCollaboration projectId={project.id} userId={userId}>
                 {(isOwner) => (
                   <>

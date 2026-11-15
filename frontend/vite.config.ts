@@ -6,6 +6,10 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
+      '^/api/projects/[^/]+/events$': {
+        target: 'http://localhost:8081',
+        changeOrigin: false,
+      },
       '/api': {
         target: 'http://localhost:8081',
         changeOrigin: true,

@@ -12,12 +12,16 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.mock.web.MockHttpSession;
+import org.springframework.test.context.transaction.TestTransaction;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.WebApplicationContext;
 
 import java.util.UUID;
+import java.util.regex.Pattern;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
@@ -152,6 +156,133 @@ class ProjectCollaborationTests {
     private Long invite(User invitee) throws Exception {
         sendInvite(invitee).andExpect(status().isCreated()).andExpect(jsonPath("$.status").value("PENDING"));
         return members.findByProjectIdOrderById(project.getId()).getFirst().getId();
+    }
+
+    @Test
+    void eventStreamRequiresSessionProjectAccessAndSameOrigin() throws Exception {
+        var request = get("/api/projects/{id}/events", project.getId());
+        mvc.perform(request).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/projects/{id}/events", project.getId()).with(user(owner.getEmail())))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/projects/{id}/events", project.getId())
+                        .header("Origin", "https://untrusted.example")
+                        .with(user(owner.getEmail())).session(session(owner)))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/projects/{id}/events", project.getId())
+                        .header("Sec-Fetch-Site", "cross-site")
+                        .with(user(owner.getEmail())).session(session(owner)))
+                .andExpect(status().isForbidden());
+        invite(invitee);
+        for (User denied : new User[]{invitee, outsider}) {
+            mvc.perform(get("/api/projects/{id}/events", project.getId())
+                            .with(user(denied.getEmail())).session(session(denied)))
+                    .andExpect(status().isNotFound());
+        }
+        mvc.perform(get("/api/projects/{id}/events", Long.MAX_VALUE)
+                        .with(user(owner.getEmail())).session(session(owner)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void eventStreamsSendOnlyCommittedChangesAndCloseAfterAccessLoss() throws Exception {
+        Long invitationId = invite(invitee);
+        respond(invitee, invitationId, "accept").andExpect(status().isOk());
+        Project otherProject = addProject(outsider);
+        TestTransaction.flagForCommit();
+        TestTransaction.end();
+
+        MockHttpSession ownerSession = session(owner);
+        MockHttpSession memberSession = session(invitee);
+        MockHttpSession outsiderSession = session(outsider);
+        try {
+            MvcResult ownerStream = openStream(project, owner, ownerSession);
+            MvcResult memberStream = openStream(project, invitee, memberSession);
+            MvcResult otherStream = openStream(otherProject, outsider, outsiderSession);
+
+            TestTransaction.start();
+            long rolledBackId = createTask(ownerSession);
+            TestTransaction.flagForRollback();
+            TestTransaction.end();
+
+            long taskId = createTask(ownerSession);
+            mvc.perform(put("/api/tasks/{id}", taskId).with(user(owner.getEmail())).session(ownerSession)
+                            .contentType("application/json").content("{\"title\":\"private task title\"}"))
+                    .andExpect(status().isOk());
+            mvc.perform(patch("/api/tasks/{id}/status", taskId).with(user(owner.getEmail())).session(ownerSession)
+                            .contentType("application/json").content("{\"status\":\"DONE\"}"))
+                    .andExpect(status().isOk());
+            mvc.perform(delete("/api/tasks/{id}", taskId).with(user(owner.getEmail())).session(ownerSession))
+                    .andExpect(status().isNoContent());
+
+            for (MvcResult stream : new MvcResult[]{ownerStream, memberStream}) {
+                String content = awaitEvent(stream, "DELETED");
+                assertThat(content).contains("event:task-changed", "\"projectId\":" + project.getId(),
+                                "\"taskId\":" + taskId, "CREATED", "UPDATED", "STATUS_CHANGED", "DELETED")
+                        .doesNotContain("\"taskId\":" + rolledBackId + ",", "private task title", owner.getEmail());
+                assertThat(Pattern.compile("event:task-changed").matcher(content).results().count()).isEqualTo(4);
+            }
+
+            members.deleteById(invitationId);
+            long nextTaskId = createTask(ownerSession);
+            memberStream.getAsyncResult(7000);
+            assertThat(memberStream.getResponse().getContentAsString()).doesNotContain("\"taskId\":" + nextTaskId + ",");
+            awaitEvent(ownerStream, "\"taskId\":" + nextTaskId + ",");
+            assertThat(otherStream.getResponse().getContentAsString()).doesNotContain("event:task-changed");
+
+            mvc.perform(post("/api/auth/logout").session(ownerSession)).andExpect(status().isOk());
+            ownerStream.getAsyncResult(7000);
+        } finally {
+            for (MockHttpSession session : new MockHttpSession[]{ownerSession, memberSession, outsiderSession}) {
+                if (!session.isInvalid()) {
+                    session.invalidate();
+                }
+            }
+            if (TestTransaction.isActive()) {
+                TestTransaction.flagForRollback();
+                TestTransaction.end();
+            }
+            TestTransaction.start();
+            tasks.deleteAll(tasks.findByProjectId(project.getId()));
+            members.deleteAll(members.findByProjectIdOrderById(project.getId()));
+            projects.deleteById(project.getId());
+            projects.deleteById(otherProject.getId());
+            users.deleteAllById(java.util.List.of(owner.getId(), invitee.getId(), outsider.getId()));
+            TestTransaction.flagForCommit();
+            TestTransaction.end();
+        }
+    }
+
+    private MvcResult openStream(Project target, User user, MockHttpSession session) throws Exception {
+        return mvc.perform(get("/api/projects/{id}/events", target.getId())
+                        .header("Origin", "http://localhost")
+                        .with(user(user.getEmail())).session(session))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(request().asyncStarted()).andReturn();
+    }
+
+    private long createTask(MockHttpSession session) throws Exception {
+        String response = mvc.perform(post("/api/tasks").with(user(owner.getEmail())).session(session)
+                        .contentType("application/json")
+                        .content("{\"projectId\":" + project.getId() + ",\"title\":\"private task title\"}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        var id = Pattern.compile("\"id\"\\s*:\\s*(\\d+)").matcher(response);
+        assertThat(id.find()).isTrue();
+        return Long.parseLong(id.group(1));
+    }
+
+    private String awaitEvent(MvcResult stream, String marker) throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(7);
+        String content;
+        do {
+            content = stream.getResponse().getContentAsString();
+            if (content.contains(marker)) {
+                return content;
+            }
+            Thread.sleep(50);
+        } while (System.nanoTime() < deadline);
+        assertThat(content).contains(marker);
+        return content;
     }
 
     private org.springframework.test.web.servlet.ResultActions sendInvite(User invitee) throws Exception {
