@@ -1261,13 +1261,22 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
     project.name.toLocaleLowerCase().includes(searchTerm),
   )
   const taskSearchTerm = taskSearch.trim().toLocaleLowerCase()
-  const filteredTasks = tasks.filter((task) =>
-    task.title.toLocaleLowerCase().includes(taskSearchTerm) &&
-    (taskStatusFilter === 'ALL' || task.status === taskStatusFilter) &&
-    (taskPriorityFilter === 'ALL' || task.priority === taskPriorityFilter),
-  )
-  const hasTaskFilter = Boolean(taskSearchTerm) ||
-    taskStatusFilter !== 'ALL' || taskPriorityFilter !== 'ALL'
+  const visibleProjectIds = new Set(filteredProjects.map((project) => project.id))
+  const filteredTasks = tasks.filter((task) => {
+    if (!visibleProjectIds.has(task.projectId)) return false
+
+    const assignee = assigneeFilters.get(task.projectId) ?? 'ALL'
+    const matchesAssignee = assignee === 'ALL' ||
+      (assignee === 'UNASSIGNED' ? task.assigneeId == null : String(task.assigneeId) === assignee)
+    const matchesSearch = task.title.toLocaleLowerCase().includes(taskSearchTerm) ||
+      (task.description ?? '').toLocaleLowerCase().includes(taskSearchTerm)
+
+    return matchesSearch && matchesAssignee &&
+      (taskStatusFilter === 'ALL' || task.status === taskStatusFilter) &&
+      (taskPriorityFilter === 'ALL' || getPriority(task.priority).value === taskPriorityFilter)
+  })
+  const hasGlobalTaskFilter = taskStatusFilter !== 'ALL' || taskPriorityFilter !== 'ALL'
+  const hasTaskFilter = Boolean(taskSearch) || hasGlobalTaskFilter || assigneeFilters.size > 0
 
   return (
     <main className="tf-app">
@@ -1384,11 +1393,11 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
 
         <section className="tf-panel" aria-labelledby="task-filter-title">
           <h2 id="task-filter-title">작업 검색 및 필터</h2>
-          <label htmlFor="task-search">작업 제목 검색</label>
+          <label htmlFor="task-search">작업 제목·설명 검색</label>
           <input
             id="task-search"
             type="search"
-            placeholder="작업 제목 검색..."
+            placeholder="제목 또는 설명 입력"
             value={taskSearch}
             onChange={(event) => setTaskSearch(event.target.value)}
           />
@@ -1469,7 +1478,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
 
         {filteredProjects.map((project) => {
           const allProjectTasks = tasks.filter((task) => task.projectId === project.id)
-          const matchingTasks = filteredTasks
+          const projectTasks = filteredTasks
             .filter((task) => task.projectId === project.id)
             .sort((a, b) => a.id - b.id)
           const assignedIds = [...new Set(allProjectTasks.flatMap((task) =>
@@ -1578,13 +1587,10 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
                 {(memberState) => {
                   const members = memberState.status === 'ready' ? memberState.items : []
                   const selectedAssignee = assigneeFilters.get(project.id) ?? 'ALL'
-                  const filterValue = selectedAssignee === 'UNASSIGNED' ||
-                    members.some((member) => String(member.userId) === selectedAssignee)
-                    ? selectedAssignee : 'ALL'
-                  const projectTasks = matchingTasks.filter((task) =>
-                    filterValue === 'ALL' ||
-                    (filterValue === 'UNASSIGNED' ? task.assigneeId == null : String(task.assigneeId) === filterValue)
-                  )
+                  const hasMissingAssignee = selectedAssignee !== 'ALL' && selectedAssignee !== 'UNASSIGNED' &&
+                    !members.some((member) => String(member.userId) === selectedAssignee)
+                  const projectHasTaskFilter = Boolean(taskSearchTerm) || hasGlobalTaskFilter ||
+                    selectedAssignee !== 'ALL'
 
                   return (
                     <>
@@ -1616,19 +1622,31 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
                           <select
                             id={`assignee-filter-${project.id}`}
                             aria-label={`${project.name} 담당자 필터`}
-                            value={filterValue}
+                            value={selectedAssignee}
                             onChange={(event) => {
                               const value = event.target.value
-                              setAssigneeFilters((previous) => new Map(previous).set(project.id, value))
+                              setAssigneeFilters((previous) => {
+                                const updated = new Map(previous)
+                                if (value === 'ALL') updated.delete(project.id)
+                                else updated.set(project.id, value)
+                                return updated
+                              })
                             }}
                           >
                             <option value="ALL">전체</option>
                             <option value="UNASSIGNED">미배정</option>
+                            {hasMissingAssignee && (
+                              <option value={selectedAssignee}>사용자 #{selectedAssignee}</option>
+                            )}
                             {members.map((member) => (
                               <option key={member.userId} value={member.userId}>{member.name}</option>
                             ))}
                           </select>
                         </div>
+
+                        {projectHasTaskFilter && projectTasks.length === 0 && (
+                          <p className="tf-empty">검색 조건에 맞는 작업이 없습니다.</p>
+                        )}
 
                         <div className="tf-board">
                           {columns.map((column) => {
