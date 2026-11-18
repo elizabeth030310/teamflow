@@ -9,6 +9,8 @@ import ProjectActivities from './ProjectActivities'
 import TaskComments from './TaskComments'
 import TaskChecklist from './TaskChecklist'
 import TaskAttachments from './TaskAttachments'
+import TaskCalendar from './TaskCalendar'
+import { dueDateAlerts, getDueDateAlert, getLocalCalendarDay } from './taskDates'
 import './TeamFlow.css'
 
 type Project = {
@@ -30,34 +32,6 @@ const priorities = [
   { value: 'MEDIUM', label: '보통', color: '#b45309', background: '#fef3c7' },
   { value: 'LOW', label: '낮음', color: '#15803d', background: '#dcfce7' },
 ]
-
-const dueDateAlerts = {
-  overdue: { label: '기한 초과', color: '#991b1b', background: '#fee2e2' },
-  today: { label: '오늘 마감', color: '#9a3412', background: '#ffedd5' },
-  upcoming: { label: '마감 임박', color: '#854d0e', background: '#fef9c3' },
-}
-
-const millisecondsPerDay = 86_400_000
-
-const getLocalCalendarDay = (date: Date) =>
-  Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / millisecondsPerDay
-
-const getDueDateAlert = (task: Task, today: number): keyof typeof dueDateAlerts | null => {
-  if (task.status === 'DONE' || !task.dueDate || !/^\d{4}-\d{2}-\d{2}$/.test(task.dueDate)) {
-    return null
-  }
-
-  const dueDate = new Date(`${task.dueDate}T00:00:00Z`)
-  if (Number.isNaN(dueDate.getTime()) || dueDate.toISOString().slice(0, 10) !== task.dueDate) {
-    return null
-  }
-
-  const daysRemaining = dueDate.getTime() / millisecondsPerDay - today
-  if (daysRemaining < 0) return 'overdue'
-  if (daysRemaining === 0) return 'today'
-  if (daysRemaining <= 3) return 'upcoming'
-  return null
-}
 
 const getPriority = (priority: string | null) =>
   priorities.find((item) => item.value === priority) ?? priorities[1]
@@ -881,6 +855,8 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
     return (
       <div
         key={task.id}
+        id={`task-${task.id}`}
+        tabIndex={-1}
         className="tf-task-card"
         data-dragging={isDragging}
         draggable={
@@ -1291,6 +1267,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
         <nav aria-label="워크스페이스 바로가기">
           <a href="#dashboard-title">대시보드</a>
           <a href="#invitations-title">받은 초대</a>
+          <a href="#task-calendar-title">월간 캘린더</a>
           <a href="#projects-title">내 프로젝트</a>
         </nav>
       </header>
@@ -1449,6 +1426,14 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
       </div>
 
       {error && <p className="tf-error" role="alert">{error}</p>}
+
+      <TaskCalendar
+        today={today}
+        tasks={filteredTasks}
+        projectNames={new Map(filteredProjects.map(({ id, name }) => [id, name]))}
+        alertsByTaskId={alertsByTaskId}
+        status={dashboardStatus}
+      />
 
       <section aria-labelledby="projects-title">
         <div className="tf-projects-heading">

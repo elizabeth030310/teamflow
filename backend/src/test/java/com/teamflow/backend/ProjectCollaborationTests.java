@@ -22,6 +22,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.WebApplicationContext;
 
+import java.time.LocalDate;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.concurrent.TimeUnit;
@@ -58,6 +59,42 @@ class ProjectCollaborationTests {
         invitee = addUser("invitee");
         outsider = addUser("outsider");
         project = addProject(owner);
+    }
+
+    @Test
+    void taskDueDateCanBeCreatedRescheduledAndCleared() throws Exception {
+        MockHttpSession ownerSession = session(owner);
+        mvc.perform(post("/api/tasks").with(user(owner.getEmail())).session(ownerSession)
+                        .contentType("application/json").content("""
+                                {"projectId":%d,"title":"Release","dueDate":"2028-02-29"}
+                                """.formatted(project.getId())))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.dueDate").value("2028-02-29"));
+        long taskId = tasks.findByProjectId(project.getId()).getFirst().getId();
+
+        String newDate = """
+                {"title":"Release","dueDate":"2028-03-01"}
+                """;
+        mvc.perform(put("/api/tasks/{id}", taskId).with(user(outsider.getEmail())).session(session(outsider))
+                        .contentType("application/json").content(newDate))
+                .andExpect(status().isNotFound());
+        mvc.perform(put("/api/tasks/{id}", taskId).with(user(owner.getEmail())).session(ownerSession)
+                        .contentType("application/json").content(newDate))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dueDate").value("2028-03-01"));
+        tasks.flush();
+        assertThat(jdbc.queryForObject("select due_date from tasks where id = ?", LocalDate.class, taskId))
+                .isEqualTo(LocalDate.of(2028, 3, 1));
+
+        mvc.perform(put("/api/tasks/{id}", taskId).with(user(owner.getEmail())).session(ownerSession)
+                        .contentType("application/json").content("""
+                                {"title":"Release","dueDate":null}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dueDate").value(nullValue()));
+        mvc.perform(get("/api/tasks/project/{id}", project.getId()).with(user(owner.getEmail())).session(ownerSession))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].dueDate").value(nullValue()));
     }
 
     @Test
@@ -619,7 +656,9 @@ class ProjectCollaborationTests {
                     .andExpect(status().isOk());
             changeAssignee(owner, taskId, assigneeBody(invitee.getId())).andExpect(status().isOk());
             mvc.perform(put("/api/tasks/{id}", taskId).with(user(owner.getEmail())).session(ownerSession)
-                            .contentType("application/json").content("{\"title\":\"private task title\"}"))
+                            .contentType("application/json").content("""
+                                    {"title":"private task title","dueDate":"2028-02-29"}
+                                    """))
                     .andExpect(status().isOk());
             mvc.perform(patch("/api/tasks/{id}/status", taskId).with(user(owner.getEmail())).session(ownerSession)
                             .contentType("application/json").content("{\"status\":\"DONE\"}"))
@@ -630,6 +669,7 @@ class ProjectCollaborationTests {
             mvc.perform(get("/api/tasks/project/{id}", project.getId())
                             .with(user(invitee.getEmail())).session(memberSession))
                     .andExpect(status().isOk())
+                    .andExpect(jsonPath("$[0].dueDate").value("2028-02-29"))
                     .andExpect(jsonPath("$[0].checklistTotal").value(0))
                     .andExpect(jsonPath("$[0].checklistCompleted").value(0));
             mvc.perform(post(checklistPath, taskId).with(user(owner.getEmail())).session(ownerSession)

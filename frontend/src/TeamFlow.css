@@ -305,6 +305,39 @@ body:has(.tf-app) {
   accent-color: var(--tf-blue);
 }
 
+.tf-calendar { margin-bottom: 24px; }
+
+.tf-calendar-header,
+.tf-calendar-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.tf-calendar-header { justify-content: space-between; }
+.tf-calendar-scroll { overflow-x: auto; }
+.tf-calendar table {
+  width: 100%;
+  min-width: 560px;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.tf-calendar :is(th, td) {
+  border: 1px solid var(--tf-border);
+  padding: 8px;
+}
+
+.tf-calendar th { background: #f3f6fb; }
+.tf-calendar td { height: 72px; vertical-align: top; }
+.tf-calendar td[data-today="true"] { background: #eff4ff; }
+.tf-calendar time { font-weight: 650; }
+.tf-calendar ul { list-style: none; margin: 4px 0 0; padding: 0; }
+.tf-calendar li { padding: 5px 0; overflow-wrap: anywhere; }
+.tf-calendar li + li { border-top: 1px solid var(--tf-border); }
+.tf-calendar small { display: block; color: var(--tf-muted); }
+
 .tf-board {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
