@@ -1,6 +1,32 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { getCalendarDate, getDueDateAlert, getLocalCalendarDay, getMonthWeeks } from '../src/taskDates.ts'
+import { getCalendarDate, getDueDateAlert, getLocalCalendarDay, getMonthWeeks, showDatePicker } from '../src/taskDates.ts'
+
+test('the date picker is opened synchronously on the input when supported', () => {
+  let openedFor
+  const input = {
+    showPicker() {
+      openedFor = this
+    },
+  }
+
+  showDatePicker(input)
+
+  assert.equal(openedFor, input)
+})
+
+test('opening the date picker is safe without an input or browser support', () => {
+  assert.doesNotThrow(() => showDatePicker(null))
+  assert.doesNotThrow(() => showDatePicker({}))
+})
+
+test('a browser rejection does not interrupt native date input behavior', () => {
+  assert.doesNotThrow(() => showDatePicker({
+    showPicker() {
+      throw new DOMException('Picker access is blocked', 'SecurityError')
+    },
+  }))
+})
 
 test('deadline warnings use local calendar days and skip completed or undated tasks', () => {
   const today = getLocalCalendarDay(new Date(2028, 1, 28, 23, 45))

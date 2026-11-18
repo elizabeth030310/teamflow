@@ -6,6 +6,16 @@ export const dueDateAlerts = {
 
 export type DueDateAlert = keyof typeof dueDateAlerts
 
+export function showDatePicker(input: HTMLInputElement | null) {
+  if (typeof input?.showPicker !== 'function') return
+
+  try {
+    input.showPicker()
+  } catch {
+    return
+  }
+}
+
 const millisecondsPerDay = 86_400_000
 
 export const getLocalCalendarDay = (date: Date) =>

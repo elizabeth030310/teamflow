@@ -15,7 +15,7 @@ import NotificationCenter from './NotificationCenter'
 import ScrollRegion from './ScrollRegion'
 import type { NotificationItem } from './notificationSync'
 import { columns, getPriority, priorities } from './projectTaskStats'
-import { dueDateAlerts, getDueDateAlert, getLocalCalendarDay } from './taskDates'
+import { dueDateAlerts, getDueDateAlert, getLocalCalendarDay, showDatePicker } from './taskDates'
 import './TeamFlow.css'
 
 type Project = {
@@ -63,6 +63,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
   const [taskStatus, setTaskStatus] = useState('TODO')
   const [taskPriority, setTaskPriority] = useState('MEDIUM')
   const [taskDueDate, setTaskDueDate] = useState('')
+  const taskDueDateInput = useRef<HTMLInputElement>(null)
   const addTaskTrigger = useRef<HTMLButtonElement | null>(null)
 
   // 작업 수정
@@ -1811,7 +1812,9 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
                             <input
                               id={`task-date-${project.id}`}
                               type="date"
+                              ref={taskDueDateInput}
                               value={taskDueDate}
+                              onClick={() => showDatePicker(taskDueDateInput.current)}
                               onChange={(e) =>
                                 setTaskDueDate(e.target.value)
                               }
