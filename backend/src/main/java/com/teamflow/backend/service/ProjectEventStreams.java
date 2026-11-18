@@ -65,9 +65,18 @@ public class ProjectEventStreams {
         enqueue(event.projectId(), new PendingEvent("activity-changed", event));
     }
 
+    @TransactionalEventListener
+    public void onNotificationChange(NotificationService.Changed event) {
+        for (Subscription subscription : subscriptions) {
+            if (subscription.projectId == null && subscription.userId.equals(event.userId())) {
+                subscription.notificationsChanged.set(true);
+            }
+        }
+    }
+
     private void enqueue(Long projectId, PendingEvent event) {
         for (Subscription subscription : subscriptions) {
-            if (subscription.projectId.equals(projectId) && !subscription.pending.offer(event)) {
+            if (projectId.equals(subscription.projectId) && !subscription.pending.offer(event)) {
                 subscription.overflow.set(true);
             }
         }
@@ -108,6 +117,9 @@ public class ProjectEventStreams {
             return;
         }
 
+        if (subscription.notificationsChanged.getAndSet(false)) {
+            send(subscription, SseEmitter.event().name("notifications-changed").data("refresh"));
+        }
         for (int delivered = 0; delivered < MAX_PENDING_EVENTS; delivered++) {
             PendingEvent event = subscription.pending.poll();
             if (event == null) {
@@ -122,7 +134,9 @@ public class ProjectEventStreams {
     }
 
     private void send(Subscription subscription, SseEmitter.SseEventBuilder event) throws IOException {
-        access.requireAccessible(subscription.projectId, subscription.userId);
+        if (subscription.projectId != null) {
+            access.requireAccessible(subscription.projectId, subscription.userId);
+        }
         if (!hasSession(subscription) || subscription.overflow.get() || !subscriptions.contains(subscription)) {
             throw new IllegalStateException("Project event stream is closed");
         }
@@ -150,6 +164,7 @@ public class ProjectEventStreams {
         private final ArrayBlockingQueue<PendingEvent> pending = new ArrayBlockingQueue<>(MAX_PENDING_EVENTS);
         private final AtomicBoolean overflow = new AtomicBoolean();
         private final AtomicBoolean delivering = new AtomicBoolean();
+        private final AtomicBoolean notificationsChanged = new AtomicBoolean();
         private long nextHeartbeat = System.nanoTime();
 
         private Subscription(Long projectId, Long userId, HttpSession session) {

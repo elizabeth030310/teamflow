@@ -6,6 +6,7 @@ import com.teamflow.backend.entity.User;
 import com.teamflow.backend.repository.TaskCommentRepository;
 import com.teamflow.backend.repository.UserRepository;
 import com.teamflow.backend.service.CommentChange;
+import com.teamflow.backend.service.NotificationService;
 import com.teamflow.backend.service.ProjectAccess;
 import com.teamflow.backend.service.TaskActivityRecorder;
 import jakarta.servlet.http.HttpSession;
@@ -28,15 +29,17 @@ public class TaskCommentController {
     private final TaskActivityRecorder activities;
     private final UserRepository users;
     private final ApplicationEventPublisher events;
+    private final NotificationService notifications;
 
     public TaskCommentController(ProjectAccess access, TaskCommentRepository comments,
                                  TaskActivityRecorder activities, UserRepository users,
-                                 ApplicationEventPublisher events) {
+                                 ApplicationEventPublisher events, NotificationService notifications) {
         this.access = access;
         this.comments = comments;
         this.activities = activities;
         this.users = users;
         this.events = events;
+        this.notifications = notifications;
     }
 
     public record CommentResponse(Long id, Long taskId, Long authorId, String authorName, String content,
@@ -74,6 +77,7 @@ public class TaskCommentController {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "로그인이 필요합니다."));
         TaskComment saved = comments.save(new TaskComment(target.task(), author, content));
         activities.record(TaskActivity.commentCreated(target.project(), target.task(), author));
+        notifications.commented(taskId, userId);
         events.publishEvent(new CommentChange(target.project().getId(), taskId));
         return CommentResponse.from(saved);
     }

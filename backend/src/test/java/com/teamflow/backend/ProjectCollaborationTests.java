@@ -8,6 +8,7 @@ import com.teamflow.backend.repository.ProjectRepository;
 import com.teamflow.backend.repository.TaskCommentRepository;
 import com.teamflow.backend.repository.TaskRepository;
 import com.teamflow.backend.repository.UserRepository;
+import com.teamflow.backend.service.NotificationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -45,6 +46,7 @@ class ProjectCollaborationTests {
     @Autowired private TaskRepository tasks;
     @Autowired private TaskCommentRepository comments;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private NotificationService notifications;
 
     private MockMvc mvc;
     private User owner;
@@ -59,6 +61,72 @@ class ProjectCollaborationTests {
         invitee = addUser("invitee");
         outsider = addUser("outsider");
         project = addProject(owner);
+    }
+
+    @Test
+    void notificationsArePrivateAndSupportIndividualAndBulkRead() throws Exception {
+        long invitationId = invite(invitee);
+        respond(invitee, invitationId, "accept").andExpect(status().isOk());
+        long taskId = createTask(session(owner));
+        changeAssignee(owner, taskId, assigneeBody(owner.getId())).andExpect(status().isOk());
+        inbox(owner).andExpect(jsonPath("$.unreadCount").value(0));
+        changeAssignee(owner, taskId, assigneeBody(invitee.getId())).andExpect(status().isOk());
+        changeAssignee(owner, taskId, assigneeBody(invitee.getId())).andExpect(status().isOk());
+        postStreamTestComment(taskId, session(owner)).andExpect(status().isCreated());
+        mvc.perform(post("/api/tasks/{id}/comments", taskId).with(user(invitee.getEmail()))
+                        .session(session(invitee)).contentType("application/json").content("{\"content\":\"Reply\"}"))
+                .andExpect(status().isCreated());
+
+        mvc.perform(get("/api/notifications")).andExpect(status().isUnauthorized());
+        inbox(invitee).andExpect(jsonPath("$.unreadCount").value(2))
+                .andExpect(jsonPath("$.items[0].kind").value("COMMENT"))
+                .andExpect(jsonPath("$.items[1].kind").value("ASSIGNMENT"))
+                .andExpect(jsonPath("$.items[0].taskId").value(taskId))
+                .andExpect(jsonPath("$.items[0].projectId").value(project.getId()));
+        inbox(owner).andExpect(jsonPath("$.unreadCount").value(1));
+        inbox(outsider).andExpect(jsonPath("$.items").isEmpty());
+        long id = jdbc.queryForObject("select id from notifications where recipient_id = ? and kind = 'COMMENT'",
+                Long.class, invitee.getId());
+        for (User actor : new User[]{outsider, owner, invitee, invitee}) {
+            mvc.perform(patch("/api/notifications/{id}/read", id).with(user(actor.getEmail())).session(session(actor)))
+                    .andExpect(actor == invitee ? status().isNoContent() : status().isNotFound());
+        }
+        inbox(invitee).andExpect(jsonPath("$.unreadCount").value(1))
+                .andExpect(jsonPath("$.items[0].read").value(true));
+        mvc.perform(patch("/api/notifications/read-all").with(user(invitee.getEmail())).session(session(invitee)))
+                .andExpect(status().isNoContent());
+        inbox(invitee).andExpect(jsonPath("$.unreadCount").value(0));
+        inbox(owner).andExpect(jsonPath("$.unreadCount").value(1));
+        members.deleteById(invitationId);
+        members.flush();
+        inbox(invitee).andExpect(jsonPath("$.items").isEmpty());
+    }
+
+    @Test
+    void deadlineNotificationsDeduplicatePerStageAndDueDate() throws Exception {
+        LocalDate today = LocalDate.of(2028, 2, 27);
+        Task active = tasks.save(new Task(project.getId(), "Active", "", "TODO", "MEDIUM", today.plusDays(3)));
+        tasks.save(new Task(project.getId(), "Done", "", "DONE", "MEDIUM", today.minusDays(1)));
+        tasks.save(new Task(project.getId(), "Later", "", "TODO", "MEDIUM", today.plusDays(8)));
+        tasks.save(new Task(project.getId(), "Undated", "", "TODO"));
+        notifications.generateDeadlines(today);
+        notifications.generateDeadlines(today.plusDays(3));
+        notifications.generateDeadlines(today.plusDays(4));
+        notifications.generateDeadlines(today.plusDays(4));
+        active.setDueDate(today.plusDays(5));
+        tasks.flush();
+        notifications.generateDeadlines(today.plusDays(4));
+        inbox(owner).andExpect(jsonPath("$.unreadCount").value(3))
+                .andExpect(jsonPath("$.items[0].kind").value("DUE_SOON"))
+                .andExpect(jsonPath("$.items[0].dueDate").value(today.plusDays(5).toString()))
+                .andExpect(jsonPath("$.items[1].kind").value("OVERDUE"))
+                .andExpect(jsonPath("$.items[2].kind").value("DUE_SOON"))
+                .andExpect(jsonPath("$.items[2].taskId").value(active.getId()));
+    }
+
+    private ResultActions inbox(User actor) throws Exception {
+        return mvc.perform(get("/api/notifications").with(user(actor.getEmail())).session(session(actor)))
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -607,6 +675,8 @@ class ProjectCollaborationTests {
             MvcResult ownerStream = openStream(project, owner, ownerSession);
             MvcResult memberStream = openStream(project, invitee, memberSession);
             MvcResult otherStream = openStream(otherProject, outsider, outsiderSession);
+            MvcResult memberNotifications = openNotificationStream(invitee, memberSession);
+            MvcResult outsiderNotifications = openNotificationStream(outsider, outsiderSession);
 
             TestTransaction.start();
             long rolledBackId = createTask(ownerSession);
@@ -651,9 +721,13 @@ class ProjectCollaborationTests {
             assertThat(jdbc.queryForObject("""
                     select count(*) from task_activities where task_id = ? and type = 'TASK_ASSIGNEE_CHANGED'
                     """, Long.class, taskId)).isZero();
+            assertThat(jdbc.queryForObject("select count(*) from notifications where task_id = ?",
+                    Long.class, taskId)).isZero();
 
             changeAssignee(owner, taskId, assigneeBody(invitee.getId()))
                     .andExpect(status().isOk());
+            assertThat(awaitEvent(memberNotifications, "event:notifications-changed"))
+                    .contains("data:refresh").doesNotContain("private task title", "taskId");
             changeAssignee(owner, taskId, assigneeBody(invitee.getId())).andExpect(status().isOk());
             mvc.perform(put("/api/tasks/{id}", taskId).with(user(owner.getEmail())).session(ownerSession)
                             .contentType("application/json").content("""
@@ -745,6 +819,8 @@ class ProjectCollaborationTests {
             assertThat(activityEventPayloads(awaitEvent(ownerStream, "\"taskId\":" + nextTaskId + ","))).hasSize(7);
             assertThat(otherStream.getResponse().getContentAsString())
                     .doesNotContain("event:task-changed", "event:comment-changed", "event:activity-changed");
+            assertThat(outsiderNotifications.getResponse().getContentAsString())
+                    .doesNotContain("event:notifications-changed");
 
             mvc.perform(post("/api/auth/logout").session(ownerSession)).andExpect(status().isOk());
             ownerStream.getAsyncResult(7000);
@@ -790,6 +866,14 @@ class ProjectCollaborationTests {
         return mvc.perform(get("/api/projects/{id}/events", target.getId())
                         .header("Origin", "http://localhost")
                         .with(user(user.getEmail())).session(session))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(request().asyncStarted()).andReturn();
+    }
+
+    private MvcResult openNotificationStream(User actor, MockHttpSession session) throws Exception {
+        return mvc.perform(get("/api/notifications/events").header("Origin", "http://localhost")
+                        .with(user(actor.getEmail())).session(session))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Cache-Control", "no-store"))
                 .andExpect(request().asyncStarted()).andReturn();

@@ -9,6 +9,7 @@ import com.teamflow.backend.repository.TaskChecklistItemRepository;
 import com.teamflow.backend.repository.TaskRepository;
 import com.teamflow.backend.repository.UserRepository;
 import com.teamflow.backend.service.AttachmentCleanupService;
+import com.teamflow.backend.service.NotificationService;
 import com.teamflow.backend.service.ProjectAccess;
 import com.teamflow.backend.service.TaskActivityRecorder;
 import com.teamflow.backend.service.TaskChange;
@@ -40,6 +41,7 @@ public class TaskController {
     private final ProjectAccess access;
     private final ApplicationEventPublisher events;
     private final AttachmentCleanupService attachmentCleanup;
+    private final NotificationService notifications;
 
     public TaskController(
             TaskRepository taskRepository,
@@ -48,7 +50,8 @@ public class TaskController {
             UserRepository users,
             ProjectAccess access,
             ApplicationEventPublisher events,
-            AttachmentCleanupService attachmentCleanup) {
+            AttachmentCleanupService attachmentCleanup,
+            NotificationService notifications) {
 
         this.taskRepository = taskRepository;
         this.checklistItems = checklistItems;
@@ -57,6 +60,7 @@ public class TaskController {
         this.access = access;
         this.events = events;
         this.attachmentCleanup = attachmentCleanup;
+        this.notifications = notifications;
     }
 
     public record TaskListItem(Long id, Long projectId, String title, String description, String status,
@@ -226,6 +230,7 @@ public class TaskController {
         task.setAssigneeId(assigneeId);
         Task saved = taskRepository.save(task);
         activities.record(TaskActivity.assigneeChanged(project, saved, requireActivityActor(userId), previousAssigneeId));
+        notifications.assigned(saved.getId(), assigneeId, userId);
         publish(saved, TaskChange.Type.UPDATED);
         return saved;
     }

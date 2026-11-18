@@ -97,6 +97,7 @@ body:has(.tf-app) {
 }
 
 .tf-hero {
+  position: relative;
   display: grid;
   justify-items: start;
   margin-bottom: var(--tf-pad);
@@ -108,6 +109,7 @@ body:has(.tf-app) {
 
 .tf-hero h1 {
   margin: 0;
+  padding-inline-end: 54px;
   font-size: clamp(2rem, 4vw, 3rem);
 }
 
@@ -135,6 +137,68 @@ body:has(.tf-app) {
 
 .tf-hero a:hover { background: #ffffff22; }
 .tf-app .tf-hero a:focus-visible { outline-color: #fff; }
+
+.tf-notifications {
+  position: absolute;
+  inset-block-start: 16px;
+  inset-inline-end: 16px;
+  z-index: 3;
+}
+
+.tf-notification-bell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tf-notification-bell span {
+  padding: 1px 5px;
+  border-radius: 12px;
+  background: #a61f39;
+  color: #fff;
+  font-size: 0.75rem;
+}
+
+#notification-inbox {
+  position: absolute;
+  inset-block-start: calc(100% + 8px);
+  inset-inline-end: 0;
+  width: min(360px, calc(100vw - 56px));
+  max-height: min(70vh, 540px);
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid #a9bbdd;
+  border-radius: 12px;
+  background: #fff;
+  color: #16284c;
+  box-shadow: 0 10px 30px #16284c33;
+}
+
+.tf-notification-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tf-notification-heading h2 { margin: 0; font-size: 1.1rem; }
+#notification-inbox ul { margin: 8px 0; padding: 0; list-style: none; }
+#notification-inbox li { display: flex; align-items: center; gap: 8px; padding: 4px; }
+#notification-inbox li[data-unread="true"] { background: #eaf1ff; }
+#notification-inbox li + li { border-top: 1px solid #dbe4f3; }
+
+#notification-inbox .tf-notification-target {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  text-align: start;
+  overflow-wrap: anywhere;
+  background: transparent;
+  border-color: transparent;
+}
+
+.tf-notification-target :is(span, time) { font-size: 0.8rem; }
 
 .tf-dashboard,
 .tf-panel,

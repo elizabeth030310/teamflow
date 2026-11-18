@@ -27,6 +27,19 @@ public class ProjectEventController {
 
     @GetMapping(path = "/api/projects/{projectId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public ResponseEntity<SseEmitter> subscribe(@PathVariable Long projectId, HttpServletRequest request) {
+        HttpSession session = requireStreamSession(request);
+        Long userId = access.currentUserId(session);
+        access.requireAccessible(projectId, userId);
+        return streamResponse(streams.subscribe(projectId, userId, session));
+    }
+
+    @GetMapping(path = "/api/notifications/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public ResponseEntity<SseEmitter> subscribeNotifications(HttpServletRequest request) {
+        HttpSession session = requireStreamSession(request);
+        return streamResponse(streams.subscribe(null, access.currentUserId(session), session));
+    }
+
+    private HttpSession requireStreamSession(HttpServletRequest request) {
         if (!"GET".equals(request.getMethod())) {
             throw new ResponseStatusException(HttpStatus.METHOD_NOT_ALLOWED);
         }
@@ -38,13 +51,14 @@ public class ProjectEventController {
         if (session == null) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
         }
-        Long userId = access.currentUserId(session);
-        access.requireAccessible(projectId, userId);
+        return session;
+    }
 
+    private ResponseEntity<SseEmitter> streamResponse(SseEmitter emitter) {
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
                 .header("X-Accel-Buffering", "no")
-                .body(streams.subscribe(projectId, userId, session));
+                .body(emitter);
     }
 
     private boolean hasAllowedOrigin(HttpServletRequest request) {

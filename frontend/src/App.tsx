@@ -11,6 +11,8 @@ import TaskChecklist from './TaskChecklist'
 import TaskAttachments from './TaskAttachments'
 import TaskCalendar from './TaskCalendar'
 import ProjectStats from './ProjectStats'
+import NotificationCenter from './NotificationCenter'
+import type { NotificationItem } from './notificationSync'
 import { columns, getPriority, priorities } from './projectTaskStats'
 import { dueDateAlerts, getDueDateAlert, getLocalCalendarDay } from './taskDates'
 import './TeamFlow.css'
@@ -34,6 +36,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
   const [openAttachments, setOpenAttachments] = useState<{ taskId: number; revision: number } | null>(null)
   const [projectSearch, setProjectSearch] = useState('')
   const [tasks, setTasks] = useState<Task[]>([])
+  const [notificationTarget, setNotificationTarget] = useState<{ taskId: number } | null>(null)
   const [taskSearch, setTaskSearch] = useState('')
   const [taskStatusFilter, setTaskStatusFilter] = useState('ALL')
   const [taskPriorityFilter, setTaskPriorityFilter] = useState('ALL')
@@ -78,6 +81,41 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
   const [error, setError] = useState('')
   const [dashboardStatus, setDashboardStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [today, setToday] = useState(() => getLocalCalendarDay(new Date()))
+
+  useEffect(() => {
+    if (!notificationTarget) return
+    const card = document.getElementById(`task-${notificationTarget.taskId}`)
+    card?.focus({ preventScroll: true })
+    card?.scrollIntoView({ block: 'center' })
+  }, [notificationTarget])
+
+  const openNotificationTask = async (item: NotificationItem) => {
+    const response = await fetch(`/api/projects/${item.projectId}`, {
+      credentials: 'include',
+      cache: 'no-store',
+      signal: AbortSignal.timeout(15_000),
+    })
+    if (response.status === 401) onSessionExpired()
+    if (!response.ok) throw new Error('프로젝트를 열 수 없습니다.')
+
+    const project: Project = await response.json()
+    const projectTasks = await loadProjectTasks(project.id)
+    if (!projectTasks.some((task) => task.id === item.taskId)) throw new Error('작업을 찾을 수 없습니다.')
+
+    setProjects((previous) => previous.some(({ id }) => id === project.id) ? previous : [...previous, project])
+    setTasks((previous) => [...previous.filter((task) => task.projectId !== project.id), ...projectTasks])
+    setProjectSearch('')
+    setTaskSearch('')
+    setTaskStatusFilter('ALL')
+    setTaskPriorityFilter('ALL')
+    setAssigneeFilters((previous) => {
+      const filters = new Map(previous)
+      filters.delete(project.id)
+      return filters
+    })
+    if (item.kind === 'COMMENT') setOpenComments({ taskId: item.taskId, revision: 0 })
+    setNotificationTarget({ taskId: item.taskId })
+  }
 
   useEffect(() => {
     let timer: number
@@ -1187,6 +1225,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
   return (
     <main className="tf-app">
       <header className="tf-hero">
+        <NotificationCenter key={userId} onOpenTask={openNotificationTask} onSessionExpired={onSessionExpired} />
         <h1>
           TeamFlow
         </h1>
