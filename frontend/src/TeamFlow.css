@@ -363,6 +363,7 @@ body:has(.tf-app) {
 }
 
 .tf-task-comments,
+.tf-task-attachments,
 .tf-task-checklist {
   margin-top: 12px;
   padding-top: 12px;
@@ -370,9 +371,11 @@ body:has(.tf-app) {
 }
 
 .tf-task-comments :is(h5, p),
+.tf-task-attachments :is(h5, p),
 .tf-task-checklist :is(h5, p) { margin: 0 0 8px; }
 
 .tf-task-comments ul,
+.tf-task-attachments ul,
 .tf-task-checklist ul {
   display: grid;
   gap: 8px;
@@ -382,6 +385,7 @@ body:has(.tf-app) {
 }
 
 .tf-task-comments li,
+.tf-task-attachments li,
 .tf-task-checklist li {
   padding: 8px;
   border: 1px solid var(--tf-border);
@@ -418,6 +422,14 @@ body:has(.tf-app) {
 
 .tf-task-checklist li button { flex: none; }
 .tf-task-checklist form button { margin-top: 8px; }
+
+.tf-attachment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tf-task-attachments input[type="file"] { margin-bottom: 8px; }
 
 .tf-task-description {
   color: var(--tf-muted);

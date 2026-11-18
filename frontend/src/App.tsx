@@ -8,6 +8,7 @@ import type { Task } from './projectTaskSync'
 import ProjectActivities from './ProjectActivities'
 import TaskComments from './TaskComments'
 import TaskChecklist from './TaskChecklist'
+import TaskAttachments from './TaskAttachments'
 import './TeamFlow.css'
 
 type Project = {
@@ -126,6 +127,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
   const [activityRefreshes, setActivityRefreshes] = useState(new Map<number, number>())
   const [openComments, setOpenComments] = useState<{ taskId: number; revision: number } | null>(null)
   const [openChecklist, setOpenChecklist] = useState<{ taskId: number; revision: number } | null>(null)
+  const [openAttachments, setOpenAttachments] = useState<{ taskId: number; revision: number } | null>(null)
   const [projectSearch, setProjectSearch] = useState('')
   const [tasks, setTasks] = useState<Task[]>([])
   const [taskSearch, setTaskSearch] = useState('')
@@ -309,6 +311,11 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
         },
         onChecklistChange: (taskId) => {
           setOpenChecklist((previous) => previous?.taskId === taskId
+            ? { taskId, revision: previous.revision + 1 }
+            : previous)
+        },
+        onAttachmentChange: (taskId) => {
+          setOpenAttachments((previous) => previous?.taskId === taskId
             ? { taskId, revision: previous.revision + 1 }
             : previous)
         },
@@ -860,6 +867,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
     const isEditing = editingTaskId === task.id
     const commentPanel = openComments?.taskId === task.id ? openComments : null
     const checklistPanel = openChecklist?.taskId === task.id ? openChecklist : null
+    const attachmentPanel = openAttachments?.taskId === task.id ? openAttachments : null
     const checklistTotal = task.checklistTotal ?? 0
     const checklistCompleted = task.checklistCompleted ?? 0
     const checklistPercent = checklistTotal ? Math.round(checklistCompleted * 100 / checklistTotal) : 0
@@ -878,6 +886,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
         draggable={
           !isEditing &&
           !commentPanel &&
+          !attachmentPanel &&
           !assigning &&
           updatingTaskId === null &&
           deletingTaskId !== task.id &&
@@ -1172,6 +1181,14 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
               >
                 체크리스트 {checklistCompleted}/{checklistTotal} ({checklistPercent}%)
               </button>
+              <button
+                type="button"
+                aria-expanded={attachmentPanel !== null}
+                aria-controls={attachmentPanel ? `task-attachments-${task.id}` : undefined}
+                onClick={() => setOpenAttachments(attachmentPanel ? null : { taskId: task.id, revision: 0 })}
+              >
+                {attachmentPanel ? '첨부파일 닫기' : '첨부파일'}
+              </button>
             </div>
             {checklistPanel && (
               <TaskChecklist
@@ -1188,6 +1205,16 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
                 taskId={task.id}
                 userId={userId}
                 revision={commentPanel.revision}
+                connectionRevision={memberRefreshes.get(task.projectId) ?? 0}
+                onSessionExpired={onSessionExpired}
+              />
+            )}
+            {attachmentPanel && (
+              <TaskAttachments
+                key={task.id}
+                taskId={task.id}
+                userId={userId}
+                revision={attachmentPanel.revision}
                 connectionRevision={memberRefreshes.get(task.projectId) ?? 0}
                 onSessionExpired={onSessionExpired}
               />

@@ -49,6 +49,17 @@ public class ProjectAccess {
         return new TaskWithProject(task, requireAccessible(task.getProjectId(), userId));
     }
 
+    public TaskWithProject lockAccessibleTask(Long taskId, Long userId) {
+        Task target = requireAccessibleTask(taskId, userId);
+        Long projectId = target.getProjectId();
+        projectRepository.findLockedById(projectId).orElseThrow(this::projectNotFound);
+        Project project = requireAccessible(projectId, userId);
+        Task task = taskRepository.findOneById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "작업 카드를 찾을 수 없습니다."));
+        return new TaskWithProject(task, project);
+    }
+
     public record TaskWithProject(Task task, Project project) {
     }
 

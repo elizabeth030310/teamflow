@@ -23,6 +23,9 @@ public interface ProjectRepository extends JpaRepository<Project, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<Project> findOneByIdAndOwnerId(Long id, Long ownerId);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<Project> findLockedById(Long id);
+
     @Query("""
             select project from Project project
             where project.owner.id = :userId or exists (

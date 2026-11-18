@@ -7,11 +7,13 @@ import com.teamflow.backend.entity.User;
 import com.teamflow.backend.repository.ProjectRepository;
 import com.teamflow.backend.repository.UserRepository;
 
+import com.teamflow.backend.service.AttachmentCleanupService;
 import com.teamflow.backend.service.ProjectAccess;
 
 import jakarta.servlet.http.HttpSession;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -24,15 +26,18 @@ public class ProjectController {
     private final ProjectRepository projectRepository;
     private final UserRepository userRepository;
     private final ProjectAccess access;
+    private final AttachmentCleanupService attachmentCleanup;
 
     public ProjectController(
             ProjectRepository projectRepository,
             UserRepository userRepository,
-            ProjectAccess access) {
+            ProjectAccess access,
+            AttachmentCleanupService attachmentCleanup) {
 
         this.projectRepository = projectRepository;
         this.userRepository = userRepository;
         this.access = access;
+        this.attachmentCleanup = attachmentCleanup;
     }
 
     // 로그인한 사용자의 프로젝트 목록 조회
@@ -94,14 +99,15 @@ public class ProjectController {
     // 프로젝트 삭제
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Transactional
     public void deleteProject(
             @PathVariable Long id,
             HttpSession session) {
 
         Long userId = access.currentUserId(session);
 
-        Project project = access.requireOwner(id, userId);
-
+        Project project = access.lockOwnedProject(id, userId);
+        attachmentCleanup.queueAndDeleteProjectAttachments(id);
         projectRepository.delete(project);
     }
 }

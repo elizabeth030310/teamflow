@@ -44,6 +44,7 @@ export function startProjectTaskSync(
     onTasks: (tasks: Task[]) => void
     onCommentChange: (taskId: number) => void
     onChecklistChange: (taskId: number) => void
+    onAttachmentChange: (taskId: number) => void
     onActivityRefresh: () => void
     onOpen: () => void
     onError: (failed: boolean) => void
@@ -140,10 +141,14 @@ export function startProjectTaskSync(
       scheduleActivityRefresh()
     })
     connection.addEventListener('task-changed', (event: MessageEvent<string>) => {
-      if (source !== connection) return
+      if (signal.aborted || source !== connection) return
       try {
         const change = JSON.parse(event.data) as { projectId?: number; taskId?: number; type?: string } | null
         if (change?.projectId !== projectId) return
+        if (change.type === 'ATTACHMENTS_CHANGED') {
+          if (typeof change.taskId === 'number') callbacks.onAttachmentChange(change.taskId)
+          return
+        }
         scheduleRefresh()
         if (change.type === 'CHECKLIST_CHANGED' && typeof change.taskId === 'number') {
           callbacks.onChecklistChange(change.taskId)

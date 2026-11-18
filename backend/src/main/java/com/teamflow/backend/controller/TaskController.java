@@ -8,6 +8,7 @@ import com.teamflow.backend.entity.User;
 import com.teamflow.backend.repository.TaskChecklistItemRepository;
 import com.teamflow.backend.repository.TaskRepository;
 import com.teamflow.backend.repository.UserRepository;
+import com.teamflow.backend.service.AttachmentCleanupService;
 import com.teamflow.backend.service.ProjectAccess;
 import com.teamflow.backend.service.TaskActivityRecorder;
 import com.teamflow.backend.service.TaskChange;
@@ -38,6 +39,7 @@ public class TaskController {
     private final UserRepository users;
     private final ProjectAccess access;
     private final ApplicationEventPublisher events;
+    private final AttachmentCleanupService attachmentCleanup;
 
     public TaskController(
             TaskRepository taskRepository,
@@ -45,7 +47,8 @@ public class TaskController {
             TaskActivityRecorder activities,
             UserRepository users,
             ProjectAccess access,
-            ApplicationEventPublisher events) {
+            ApplicationEventPublisher events,
+            AttachmentCleanupService attachmentCleanup) {
 
         this.taskRepository = taskRepository;
         this.checklistItems = checklistItems;
@@ -53,6 +56,7 @@ public class TaskController {
         this.users = users;
         this.access = access;
         this.events = events;
+        this.attachmentCleanup = attachmentCleanup;
     }
 
     public record TaskListItem(Long id, Long projectId, String title, String description, String status,
@@ -270,11 +274,12 @@ public class TaskController {
 
         Long userId = access.currentUserId(session);
 
-        Task task = lockTaskForActivity(id);
-        Project project = access.requireAccessible(task.getProjectId(), userId);
-
-        activities.record(TaskActivity.deleted(project, task, requireActivityActor(userId)));
+        var target = access.lockAccessibleTask(id, userId);
+        Task task = target.task();
+        attachmentCleanup.queueTaskFiles(id);
+        activities.record(TaskActivity.deleted(target.project(), task, requireActivityActor(userId)));
         taskRepository.delete(task);
+        taskRepository.flush();
         publish(task, TaskChange.Type.DELETED);
     }
 

@@ -10,6 +10,10 @@ export default defineConfig({
         target: 'http://localhost:8081',
         changeOrigin: false,
       },
+      '^/api/tasks/[^/]+/attachments(?:/.*)?$': {
+        target: 'http://localhost:8081',
+        changeOrigin: false,
+      },
       '/api': {
         target: 'http://localhost:8081',
         changeOrigin: true,
