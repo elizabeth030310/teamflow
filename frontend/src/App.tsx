@@ -15,6 +15,7 @@ import NotificationCenter from './NotificationCenter'
 import ScrollRegion from './ScrollRegion'
 import type { NotificationItem } from './notificationSync'
 import { columns, getPriority, priorities } from './projectTaskStats'
+import { createSearchMatcher } from './search'
 import { dueDateAlerts, getDueDateAlert, getLocalCalendarDay, showDatePicker } from './taskDates'
 import './TeamFlow.css'
 
@@ -1203,20 +1204,18 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
     { label: '3일 이내 마감 예정 (오늘 포함)', value: `${upcomingTasks}개` },
   ]
 
-  const searchTerm = projectSearch.trim().toLocaleLowerCase()
-  const filteredProjects = projects.filter((project) =>
-    project.name.toLocaleLowerCase().includes(searchTerm),
-  )
-  const taskSearchTerm = taskSearch.trim().toLocaleLowerCase()
-  const visibleProjectIds = new Set(filteredProjects.map((project) => project.id))
+  const matchesProjectSearch = createSearchMatcher(projectSearch)
+  const filteredProjects = projects.filter((project) => matchesProjectSearch(project.name))
+  const taskSearchTerm = taskSearch.trim()
+  const matchesTaskSearch = createSearchMatcher(taskSearchTerm)
+  const visibleProjectNames = new Map(filteredProjects.map(({ id, name }) => [id, name]))
   const filteredTasks = tasks.filter((task) => {
-    if (!visibleProjectIds.has(task.projectId)) return false
+    if (!visibleProjectNames.has(task.projectId)) return false
 
     const assignee = assigneeFilters.get(task.projectId) ?? 'ALL'
     const matchesAssignee = assignee === 'ALL' ||
       (assignee === 'UNASSIGNED' ? task.assigneeId == null : String(task.assigneeId) === assignee)
-    const matchesSearch = task.title.toLocaleLowerCase().includes(taskSearchTerm) ||
-      (task.description ?? '').toLocaleLowerCase().includes(taskSearchTerm)
+    const matchesSearch = matchesTaskSearch(task.title) || matchesTaskSearch(task.description)
 
     return matchesSearch && matchesAssignee &&
       (taskStatusFilter === 'ALL' || task.status === taskStatusFilter) &&
@@ -1404,6 +1403,22 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
               </button>
             </div>
           )}
+          {hasTaskFilter && dashboardStatus === 'ready' && (
+            filteredTasks.length > 0 ? (
+              <ul className="tf-task-search-results" role="list" aria-label="작업 검색 결과">
+                {filteredTasks.map((task) => (
+                  <li key={task.id}>
+                    <a href={`#task-${task.id}`}>
+                      {task.title}
+                      <small>{visibleProjectNames.get(task.projectId)}</small>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="tf-empty">검색 조건에 맞는 작업이 없습니다.</p>
+            )
+          )}
         </section>
       </div>
 
@@ -1412,7 +1427,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
       <TaskCalendar
         today={today}
         tasks={filteredTasks}
-        projectNames={new Map(filteredProjects.map(({ id, name }) => [id, name]))}
+        projectNames={visibleProjectNames}
         alertsByTaskId={alertsByTaskId}
         status={dashboardStatus}
       />
