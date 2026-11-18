@@ -22,12 +22,14 @@ import org.springframework.security.web.context.HttpSessionSecurityContextReposi
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
+    private static final int BCRYPT_MAX_PASSWORD_BYTES = 72;
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -82,6 +84,13 @@ public class AuthController {
             );
         }
 
+        if (exceedsPasswordByteLimit(request.password())) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "비밀번호는 UTF-8 기준 72바이트 이하여야 합니다."
+            );
+        }
+
         if (userRepository.existsByEmail(email)) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
@@ -122,7 +131,7 @@ public class AuthController {
                         "이메일 또는 비밀번호가 올바르지 않습니다."
                 ));
 
-        if (!passwordEncoder.matches(
+        if (exceedsPasswordByteLimit(request.password()) || !passwordEncoder.matches(
                 request.password(),
                 user.getPassword())) {
 
@@ -226,5 +235,9 @@ public class AuthController {
         return Map.of(
                 "message", "로그아웃되었습니다."
         );
+    }
+
+    private static boolean exceedsPasswordByteLimit(String password) {
+        return password.getBytes(StandardCharsets.UTF_8).length > BCRYPT_MAX_PASSWORD_BYTES;
     }
 }
