@@ -10,6 +10,8 @@ import TaskComments from './TaskComments'
 import TaskChecklist from './TaskChecklist'
 import TaskAttachments from './TaskAttachments'
 import TaskCalendar from './TaskCalendar'
+import ProjectStats from './ProjectStats'
+import { columns, getPriority, priorities } from './projectTaskStats'
 import { dueDateAlerts, getDueDateAlert, getLocalCalendarDay } from './taskDates'
 import './TeamFlow.css'
 
@@ -19,79 +21,7 @@ type Project = {
   description: string
 }
 
-const columns = [
-  { status: 'TODO', label: '할 일', color: '#64748b' },
-  { status: 'IN_PROGRESS', label: '진행 중', color: '#2563eb' },
-  { status: 'DONE', label: '완료', color: '#15803d' },
-]
-
 const statusLabels = new Map(columns.map(({ status, label }) => [status, label]))
-
-const priorities = [
-  { value: 'HIGH', label: '높음', color: '#dc2626', background: '#fee2e2' },
-  { value: 'MEDIUM', label: '보통', color: '#b45309', background: '#fef3c7' },
-  { value: 'LOW', label: '낮음', color: '#15803d', background: '#dcfce7' },
-]
-
-const getPriority = (priority: string | null) =>
-  priorities.find((item) => item.value === priority) ?? priorities[1]
-
-function ProjectStats({ project, tasks }: { project: Project; tasks: Task[] }) {
-  const statusCounts = new Map<string, number>()
-  const priorityCounts = new Map<string, number>()
-
-  for (const task of tasks) {
-    const priority = getPriority(task.priority).value
-    statusCounts.set(task.status, (statusCounts.get(task.status) ?? 0) + 1)
-    priorityCounts.set(priority, (priorityCounts.get(priority) ?? 0) + 1)
-  }
-
-  const completedTasks = statusCounts.get('DONE') ?? 0
-  const completionRate = tasks.length === 0
-    ? 0
-    : Math.round((completedTasks / tasks.length) * 100)
-
-  return (
-    <section className="tf-project-stats" aria-labelledby={`project-stats-${project.id}`}>
-      <h4 id={`project-stats-${project.id}`}>프로젝트 통계</h4>
-
-      <dl className="tf-project-counts">
-        <div>
-          <dt>전체 작업</dt>
-          <dd>{tasks.length}개</dd>
-        </div>
-        {columns.map(({ status, label }) => (
-          <div key={status}>
-            <dt>{label}</dt>
-            <dd>{statusCounts.get(status) ?? 0}개</dd>
-          </div>
-        ))}
-      </dl>
-
-      <label className="tf-project-progress-label" htmlFor={`project-progress-${project.id}`}>
-        <span>작업 완료율</span>
-        <strong>{completionRate}%</strong>
-      </label>
-      <progress
-        id={`project-progress-${project.id}`}
-        className="tf-project-progress"
-        aria-label={`${project.name} 작업 완료율`}
-        max={100}
-        value={completionRate}
-      />
-
-      <h5>우선순위별 작업</h5>
-      <dl className="tf-project-counts">
-        {priorities.map(({ value, label, color, background }) => (
-          <div key={value}>
-            <dt><span style={{ color, background }}>{label}</span></dt>
-            <dd>{priorityCounts.get(value) ?? 0}개</dd>
-          </div>
-        ))}
-      </dl>
-    </section>
-  )
-}
 
 function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: () => void }) {
   const [projects, setProjects] = useState<Project[]>([])
@@ -1580,7 +1510,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
                   return (
                     <>
                       {dashboardStatus === 'ready' && (
-                        <ProjectStats project={project} tasks={allProjectTasks} />
+                        <ProjectStats project={project} tasks={allProjectTasks} members={members} today={today} />
                       )}
 
                       <ProjectActivities

@@ -231,7 +231,98 @@ body:has(.tf-app) {
   background: #f6f8fe;
 }
 
-.tf-project-stats h4 { margin: 0 0 12px; }
+.tf-project-stats h4 { margin: 0; }
+
+.tf-stats-caption {
+  margin: 6px 0 0;
+  color: var(--tf-muted);
+  font-size: 0.875rem;
+}
+
+.tf-stats-overview,
+.tf-stats-charts {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.tf-stats-overview { grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr)); }
+.tf-stats-charts { grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); }
+
+.tf-stats-card {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--tf-border);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.tf-stats-card h5 { margin: 0; font-size: 0.9375rem; }
+
+.tf-stats-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tf-stats-heading strong {
+  color: var(--tf-blue);
+  font-size: 1.5rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.tf-stats-deadlines {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 72px), 1fr));
+  gap: 8px;
+  margin: 10px 0 0;
+}
+
+.tf-stats-deadlines > div {
+  padding: 8px;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.tf-stats-deadlines dt { font-size: 0.8125rem; }
+.tf-stats-deadlines dd { margin: 2px 0 0; }
+
+.tf-stats-distribution {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0 0;
+}
+
+.tf-stats-distribution > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+
+.tf-stats-distribution dt { overflow-wrap: anywhere; }
+.tf-stats-distribution dd { margin: 0; }
+
+.tf-stats-deadlines dd,
+.tf-stats-distribution dd {
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
+.tf-stats-track {
+  grid-column: 1 / -1;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e2e8f0;
+}
+
+.tf-stats-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
 
 .tf-project-activities {
   margin-top: 20px;
@@ -257,51 +348,11 @@ body:has(.tf-app) {
 .tf-activity-list li + li { border-top: 1px solid var(--tf-border); }
 .tf-activity-list time { color: var(--tf-muted); font-size: 0.8125rem; }
 
-.tf-project-stats h5 {
-  margin: 16px 0 8px;
-  font-size: 0.875rem;
-}
-
-.tf-project-counts {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 100px), 1fr));
-  gap: 8px;
-  margin: 0;
-}
-
-.tf-project-counts > div {
-  padding: 8px 12px;
-  border: 1px solid var(--tf-border);
-  border-radius: 8px;
-  background: #fff;
-}
-
-.tf-project-counts dt { color: var(--tf-muted); }
-
-.tf-project-counts dt span {
-  display: inline-block;
-  padding: 0 8px;
-  border-radius: 999px;
-  font-weight: 650;
-}
-
-.tf-project-counts dd {
-  margin: 4px 0 0;
-  font-weight: 750;
-  font-variant-numeric: tabular-nums;
-}
-
-.tf-app .tf-project-progress-label {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 14px;
-}
-
 .tf-project-progress {
   display: block;
   width: 100%;
   height: 12px;
+  margin-top: 8px;
   accent-color: var(--tf-blue);
 }
 
