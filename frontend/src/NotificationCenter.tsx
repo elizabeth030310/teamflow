@@ -114,13 +114,13 @@ export default function NotificationCenter({ onOpenTask, onSessionExpired }: {
               모두 읽음
             </button>
           </div>
-          {loadingError && <div role="status">
+          {loadingError && <div className="tf-status" role="status">
             알림을 불러오지 못했습니다.{' '}
             <button type="button" onClick={() => void sync.current?.refresh()}>다시 시도</button>
           </div>}
-          {actionError && <div role="alert">{actionError}</div>}
-          {!inbox && !loadingError && <div role="status">알림을 불러오는 중입니다.</div>}
-          {inbox && inbox.items.length === 0 && <div>표시할 알림이 없습니다.</div>}
+          {actionError && <p className="tf-error" role="alert">{actionError}</p>}
+          {!inbox && !loadingError && <p className="tf-status" role="status">알림을 불러오는 중입니다.</p>}
+          {inbox && inbox.items.length === 0 && <p className="tf-empty">표시할 알림이 없습니다.</p>}
           <ul>
             {inbox?.items.map((item) => (
               <li key={item.id} data-unread={!item.read}>

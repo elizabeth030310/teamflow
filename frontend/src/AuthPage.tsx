@@ -10,9 +10,10 @@ type User = {
 
 type AuthPageProps = {
   onLogin: (user: User) => void
+  connectionError?: string
 }
 
-function AuthPage({ onLogin }: AuthPageProps) {
+function AuthPage({ onLogin, connectionError }: AuthPageProps) {
   const [mode, setMode] = useState<'login' | 'signup'>('login')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -25,6 +26,7 @@ function AuthPage({ onLogin }: AuthPageProps) {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (loading) return
 
     setError('')
     setMessage('')
@@ -90,172 +92,74 @@ function AuthPage({ onLogin }: AuthPageProps) {
     setPassword('')
   }
 
-  const inputStyle = {
-    width: '100%',
-    padding: '12px',
-    boxSizing: 'border-box' as const,
-    border: '1px solid #cbd5e1',
-    borderRadius: '8px',
-    fontSize: '14px',
-  }
-
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        backgroundColor: '#f1f5f9',
-        padding: '20px',
-        boxSizing: 'border-box',
-      }}
-    >
-      <div
-        style={{
-          width: '100%',
-          maxWidth: '420px',
-          padding: '36px',
-          borderRadius: '16px',
-          backgroundColor: '#ffffff',
-          boxShadow: '0 10px 30px rgba(0,0,0,0.08)',
-          boxSizing: 'border-box',
-        }}
-      >
-        <h1
-          style={{
-            margin: '0 0 8px',
-            textAlign: 'center',
-            color: '#2563eb',
-          }}
-        >
-          TeamFlow
-        </h1>
-
-        <p
-          style={{
-            textAlign: 'center',
-            color: '#64748b',
-            marginBottom: '28px',
-          }}
-        >
-          팀 프로젝트를 한곳에서 관리하세요
-        </p>
-
-        <h2
-          style={{
-            fontSize: '20px',
-            color: '#1e293b',
-            marginBottom: '20px',
-          }}
-        >
-          {isSignup ? '회원가입' : '로그인'}
-        </h2>
+    <main className="tf-app tf-auth">
+      <section className="tf-panel" aria-labelledby="auth-title">
+        <h1>TeamFlow</h1>
+        <p className="tf-auth-intro">팀 프로젝트를 한곳에서 관리하세요</p>
+        <h2 id="auth-title">{isSignup ? '회원가입' : '로그인'}</h2>
 
         <form onSubmit={handleSubmit}>
           {isSignup && (
-            <div style={{ marginBottom: '16px' }}>
+            <div>
               <label htmlFor="auth-name">이름</label>
               <input
                 id="auth-name"
-                type="text"
+                name="name"
+                autoComplete="name"
                 value={name}
                 onChange={(event) => setName(event.target.value)}
-                placeholder="이름을 입력하세요"
                 required
                 maxLength={50}
-                style={{ ...inputStyle, marginTop: '6px' }}
               />
             </div>
           )}
 
-          <div style={{ marginBottom: '16px' }}>
+          <div>
             <label htmlFor="auth-email">이메일</label>
             <input
               id="auth-email"
+              name="email"
               type="email"
+              autoComplete="username"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              placeholder="example@email.com"
               required
-              style={{ ...inputStyle, marginTop: '6px' }}
             />
           </div>
 
-          <div style={{ marginBottom: '20px' }}>
+          <div>
             <label htmlFor="auth-password">비밀번호</label>
             <input
               id="auth-password"
+              name="password"
               type="password"
+              autoComplete={isSignup ? 'new-password' : 'current-password'}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              placeholder="8자 이상 입력하세요"
               required
               minLength={isSignup ? 8 : undefined}
-              style={{ ...inputStyle, marginTop: '6px' }}
             />
           </div>
 
-          {error && (
-            <p style={{ color: '#dc2626', fontSize: '14px' }}>
-              {error}
-            </p>
-          )}
+          {connectionError && !error && <p className="tf-error" role="alert">{connectionError}</p>}
+          {error && <p className="tf-error" role="alert">{error}</p>}
+          {message && <p className="tf-status" role="status">{message}</p>}
+          {loading && <p className="tf-status" role="status">요청을 처리하는 중입니다.</p>}
 
-          {message && (
-            <p style={{ color: '#16a34a', fontSize: '14px' }}>
-              {message}
-            </p>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              width: '100%',
-              padding: '13px',
-              backgroundColor: loading ? '#94a3b8' : '#2563eb',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              fontSize: '16px',
-              fontWeight: 'bold',
-              cursor: loading ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {loading
-              ? '처리 중...'
-              : isSignup
-                ? '회원가입'
-                : '로그인'}
+          <button type="submit" className="tf-primary" disabled={loading}>
+            {isSignup ? '회원가입' : '로그인'}
           </button>
         </form>
 
-        <p
-          style={{
-            textAlign: 'center',
-            marginTop: '24px',
-            color: '#64748b',
-            fontSize: '14px',
-          }}
-        >
+        <p className="tf-auth-switch">
           {isSignup ? '이미 계정이 있나요?' : '아직 계정이 없나요?'}{' '}
-          <button
-            type="button"
-            onClick={changeMode}
-            style={{
-              border: 'none',
-              background: 'none',
-              color: '#2563eb',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-            }}
-          >
+          <button type="button" onClick={changeMode} disabled={loading}>
             {isSignup ? '로그인' : '회원가입'}
           </button>
         </p>
-      </div>
-    </div>
+      </section>
+    </main>
   )
 }
 

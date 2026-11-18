@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { Task } from './projectTaskSync'
 import { dueDateAlerts, getCalendarDate, getMonthWeeks } from './taskDates'
 import type { DueDateAlert } from './taskDates'
+import ScrollRegion from './ScrollRegion'
 
 const weekdays = ['일', '월', '화', '수', '목', '금', '토']
 
@@ -47,9 +48,9 @@ export default function TaskCalendar({ today, tasks, projectNames, alertsByTaskI
         </div>
       </div>
       <h3 id="task-calendar-month" aria-live="polite">{monthLabel}</h3>
-      {status === 'loading' && <p role="status">작업 일정을 불러오는 중입니다.</p>}
-      {status === 'error' && <p role="status">일부 작업 일정을 불러오지 못했습니다.</p>}
-      <div className="tf-calendar-scroll" role="region" aria-labelledby="task-calendar-month" tabIndex={0}>
+      {status === 'loading' && <p className="tf-status" role="status">작업 일정을 불러오는 중입니다.</p>}
+      {status === 'error' && <p className="tf-error" role="status">작업 일정을 불러오지 못했습니다.</p>}
+      <ScrollRegion kind="calendar" labelId="task-calendar-month">
         <table aria-labelledby="task-calendar-month">
           <thead>
             <tr>{weekdays.map((weekday) => <th key={weekday} scope="col">{weekday}</th>)}</tr>
@@ -94,7 +95,7 @@ export default function TaskCalendar({ today, tasks, projectNames, alertsByTaskI
             ))}
           </tbody>
         </table>
-      </div>
+      </ScrollRegion>
       {status === 'ready' && !hasDueTasks && <p className="tf-empty">이 달에 표시할 마감 일정이 없습니다.</p>}
     </section>
   )

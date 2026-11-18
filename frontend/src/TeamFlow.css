@@ -36,7 +36,7 @@ body:has(.tf-app) {
   font: inherit;
 }
 
-.tf-app :is(input, select, textarea) {
+.tf-app :is(input:not([type="checkbox"]), select, textarea) {
   display: block;
   width: 100%;
   min-width: 0;
@@ -91,7 +91,8 @@ body:has(.tf-app) {
 
 .tf-app .tf-danger:not(:disabled):hover { background: #fce5e8; }
 
-.tf-app :is(a, button, input, select, textarea):focus-visible {
+.tf-app :is(a, button, input, select, textarea, summary, [tabindex]):focus-visible,
+.tf-task-card:focus {
   outline: 3px solid #2355cc;
   outline-offset: 2px;
 }
@@ -138,6 +139,49 @@ body:has(.tf-app) {
 .tf-hero a:hover { background: #ffffff22; }
 .tf-app .tf-hero a:focus-visible { outline-color: #fff; }
 
+.tf-account {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 16px;
+  padding: 8px var(--tf-pad);
+  border-bottom: 1px solid var(--tf-border);
+  background: #f8faff;
+}
+
+.tf-account .tf-error { flex-basis: 100%; margin: 0; }
+
+.tf-auth {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  min-height: 100svh;
+}
+
+.tf-auth .tf-panel { width: min(100%, 420px); }
+.tf-auth h1 { margin: 0; color: var(--tf-blue); }
+.tf-auth-intro { margin: 8px 0 24px; color: var(--tf-muted); }
+.tf-auth form { display: grid; gap: 14px; }
+.tf-auth form p { margin: 0; }
+.tf-auth-switch { margin: 16px 0 0; text-align: center; }
+
+.tf-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.tf-status {
+  padding: 10px 14px;
+  border: 1px solid var(--tf-border);
+  border-radius: 8px;
+  color: var(--tf-muted);
+  background: #f6f8fe;
+}
+
 .tf-notifications {
   position: absolute;
   inset-block-start: 16px;
@@ -163,7 +207,7 @@ body:has(.tf-app) {
   position: absolute;
   inset-block-start: calc(100% + 8px);
   inset-inline-end: 0;
-  width: min(360px, calc(100vw - 56px));
+  width: min(360px, calc(100vw - var(--tf-pad) - var(--tf-pad) - 32px));
   max-height: min(70vh, 540px);
   overflow: auto;
   padding: 12px;
@@ -176,6 +220,7 @@ body:has(.tf-app) {
 
 .tf-notification-heading {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
@@ -183,12 +228,13 @@ body:has(.tf-app) {
 
 .tf-notification-heading h2 { margin: 0; font-size: 1.1rem; }
 #notification-inbox ul { margin: 8px 0; padding: 0; list-style: none; }
-#notification-inbox li { display: flex; align-items: center; gap: 8px; padding: 4px; }
+#notification-inbox .tf-status { margin-block: 8px; }
+#notification-inbox li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px; }
 #notification-inbox li[data-unread="true"] { background: #eaf1ff; }
 #notification-inbox li + li { border-top: 1px solid #dbe4f3; }
 
 #notification-inbox .tf-notification-target {
-  flex: 1;
+  flex: 1 1 8rem;
   min-width: 0;
   display: grid;
   gap: 3px;
@@ -254,8 +300,9 @@ body:has(.tf-app) {
   margin-block: var(--tf-pad);
 }
 
-.tf-panel input + label,
-.tf-panel > button { margin-top: 12px; }
+.tf-project-form { display: grid; gap: 12px; justify-items: start; }
+.tf-project-form > div { width: 100%; }
+.tf-project-form p { margin: 0; }
 
 .tf-filters {
   display: grid;
@@ -431,7 +478,19 @@ body:has(.tf-app) {
 }
 
 .tf-calendar-header { justify-content: space-between; }
-.tf-calendar-scroll { overflow-x: auto; }
+.tf-scroll-region {
+  min-width: 0;
+  overflow-x: auto;
+  padding: 5px 5px 10px;
+  overscroll-behavior-inline: contain;
+}
+
+.tf-scroll-hint {
+  display: none;
+  margin: 0 0 8px;
+  color: var(--tf-muted);
+  font-size: 0.875rem;
+}
 .tf-calendar table {
   width: 100%;
   min-width: 560px;
@@ -556,16 +615,19 @@ body:has(.tf-app) {
 
 .tf-task-checklist li label {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   min-width: 0;
+  min-height: 44px;
   margin: 0;
 }
 
 .tf-task-checklist input[type="checkbox"] {
-  width: auto;
   flex: none;
+  width: 20px;
+  height: 20px;
   margin: 0;
+  accent-color: var(--tf-blue);
 }
 
 .tf-task-checklist li button { flex: none; }
@@ -692,9 +754,15 @@ body:has(.tf-app) {
   margin-block: 12px;
 }
 
-@media (max-width: 860px) {
-  .tf-board { grid-template-columns: minmax(0, 1fr); }
-  .tf-column { min-height: auto; }
+@media (max-width: 920px) {
+  .tf-board {
+    grid-template-columns: repeat(3, clamp(min(15rem, 88%), 34%, 19rem));
+  }
+  .tf-board-hint { display: block; }
+}
+
+@media (max-width: 700px) {
+  .tf-calendar-hint { display: block; }
 }
 
 @media (max-width: 640px) {
@@ -702,4 +770,5 @@ body:has(.tf-app) {
   .tf-filters { grid-template-columns: minmax(0, 1fr); }
   .tf-project-search { flex-basis: 100%; }
   .tf-app :is(input, select, textarea) { font-size: 1rem; }
+  .tf-account { justify-content: space-between; }
 }

@@ -12,6 +12,7 @@ import TaskAttachments from './TaskAttachments'
 import TaskCalendar from './TaskCalendar'
 import ProjectStats from './ProjectStats'
 import NotificationCenter from './NotificationCenter'
+import ScrollRegion from './ScrollRegion'
 import type { NotificationItem } from './notificationSync'
 import { columns, getPriority, priorities } from './projectTaskStats'
 import { dueDateAlerts, getDueDateAlert, getLocalCalendarDay } from './taskDates'
@@ -47,6 +48,8 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
   // 프로젝트 생성
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const [creatingProject, setCreatingProject] = useState(false)
+  const [projectFormError, setProjectFormError] = useState('')
 
   // 프로젝트 수정
   const [editingId, setEditingId] = useState<number | null>(null)
@@ -60,6 +63,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
   const [taskStatus, setTaskStatus] = useState('TODO')
   const [taskPriority, setTaskPriority] = useState('MEDIUM')
   const [taskDueDate, setTaskDueDate] = useState('')
+  const addTaskTrigger = useRef<HTMLButtonElement | null>(null)
 
   // 작업 수정
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null)
@@ -80,13 +84,14 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
 
   const [error, setError] = useState('')
   const [dashboardStatus, setDashboardStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [workspaceAttempt, setWorkspaceAttempt] = useState(0)
   const [today, setToday] = useState(() => getLocalCalendarDay(new Date()))
 
   useEffect(() => {
     if (!notificationTarget) return
     const card = document.getElementById(`task-${notificationTarget.taskId}`)
     card?.focus({ preventScroll: true })
-    card?.scrollIntoView({ block: 'center' })
+    card?.scrollIntoView({ block: 'center', inline: 'nearest' })
   }, [notificationTarget])
 
   const openNotificationTask = async (item: NotificationItem) => {
@@ -144,8 +149,6 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
 
     const loadData = async () => {
       try {
-        setError('')
-
         const projectResponse = await fetch('/api/projects', { credentials: 'include', signal })
 
         if (signal.aborted) return
@@ -178,14 +181,13 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
       } catch (err) {
         if (signal.aborted) return
         console.error(err)
-        setError('데이터를 불러오지 못했습니다.')
         setDashboardStatus('error')
       }
     }
 
     loadData()
     return () => controller.abort()
-  }, [onSessionExpired])
+  }, [onSessionExpired, workspaceAttempt])
 
   const removeProject = useCallback((projectId: number) => {
     liveTasks.current.get(projectId)?.close()
@@ -357,14 +359,15 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
 
   // 프로젝트 생성
   const handleCreateProject = async () => {
+    if (creatingProject || dashboardStatus === 'loading') return
     if (!name.trim()) {
-      alert('프로젝트 이름을 입력해 주세요.')
+      setProjectFormError('프로젝트 이름을 입력해 주세요.')
       return
     }
 
+    setCreatingProject(true)
+    setProjectFormError('')
     try {
-      setError('')
-
       const response = await fetch('/api/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -385,7 +388,9 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
       setDescription('')
     } catch (err) {
       console.error(err)
-      setError('프로젝트 생성에 실패했습니다.')
+      setProjectFormError('프로젝트를 만들지 못했습니다. 다시 시도해 주세요.')
+    } finally {
+      setCreatingProject(false)
     }
   }
 
@@ -861,6 +866,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
             <input
               id={`edit-title-${task.id}`}
               type="text"
+              autoFocus
               value={editTaskTitle}
               onChange={(e) =>
                 setEditTaskTitle(e.target.value)
@@ -934,13 +940,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
               }
             />
 
-            <div
-              style={{
-                display: 'flex',
-                gap: '8px',
-                marginTop: '12px',
-              }}
-            >
+            <div className="tf-actions">
               <button
                 onClick={() => handleUpdateTask(task.id)}
                 disabled={savingTaskId === task.id}
@@ -1051,7 +1051,9 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
               {assignment && <p id={`assignee-error-${task.id}`} className="tf-error" role="alert">{assignment}</p>}
             </div>
 
+            <label htmlFor={`task-move-${task.id}`}>상태 변경</label>
             <select
+              id={`task-move-${task.id}`}
               aria-label={`${task.title} 상태 변경`}
               value={task.status}
               disabled={
@@ -1246,8 +1248,16 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
         aria-labelledby="dashboard-title"
       >
         <h2 id="dashboard-title" style={{ marginTop: 0 }}>대시보드</h2>
-        {dashboardStatus === 'loading' && <p role="status">통계를 불러오는 중입니다.</p>}
-        {dashboardStatus === 'error' && <p role="status">통계를 불러오지 못했습니다.</p>}
+        {dashboardStatus === 'loading' && <p className="tf-status" role="status">워크스페이스를 불러오는 중입니다.</p>}
+        {dashboardStatus === 'error' && (
+          <>
+            <p className="tf-error" role="alert">워크스페이스를 불러오지 못했습니다.</p>
+            <button type="button" disabled={creatingProject} onClick={() => {
+              setDashboardStatus('loading')
+              setWorkspaceAttempt((attempt) => attempt + 1)
+            }}>다시 불러오기</button>
+          </>
+        )}
         {dashboardStatus === 'ready' && (
           <>
             <dl className="tf-metrics">
@@ -1310,31 +1320,33 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
             새 프로젝트 만들기
           </h2>
 
-          <label htmlFor="project-name">프로젝트 이름</label>
-          <input
-            id="project-name"
-            type="text"
-            placeholder="프로젝트 이름"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-
-          <label htmlFor="project-description">프로젝트 설명</label>
-          <textarea
-            id="project-description"
-            placeholder="프로젝트 설명"
-            value={description}
-            onChange={(e) =>
-              setDescription(e.target.value)
-            }
-          />
-
-          <button
-            onClick={handleCreateProject}
-            className="tf-primary"
-          >
-            + 프로젝트 추가
-          </button>
+          <form className="tf-project-form" onSubmit={(event) => {
+            event.preventDefault()
+            void handleCreateProject()
+          }}>
+            <div>
+              <label htmlFor="project-name">프로젝트 이름</label>
+              <input
+                id="project-name"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                required
+              />
+            </div>
+            <div>
+              <label htmlFor="project-description">프로젝트 설명</label>
+              <textarea
+                id="project-description"
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+              />
+            </div>
+            {projectFormError && <p className="tf-error" role="alert">{projectFormError}</p>}
+            {creatingProject && <p className="tf-status" role="status">프로젝트를 만드는 중입니다.</p>}
+            <button type="submit" className="tf-primary" disabled={creatingProject || dashboardStatus === 'loading'}>
+              + 프로젝트 추가
+            </button>
+          </form>
         </section>
 
         <section className="tf-panel" aria-labelledby="task-filter-title">
@@ -1376,7 +1388,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
             </div>
           </div>
           {hasTaskFilter && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '12px' }}>
+            <div className="tf-actions">
               <span role="status">검색 결과 {filteredTasks.length}개</span>
               <button
                 type="button"
@@ -1420,15 +1432,17 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
           </div>
         </div>
 
-        {projectSearch.trim() && (
+        {dashboardStatus === 'ready' && projectSearch.trim() && (
           <p role="status">검색 결과 {filteredProjects.length}개</p>
         )}
 
-        {projects.length === 0 ? (
-          <p className="tf-empty">아직 생성된 프로젝트가 없습니다.</p>
-        ) : filteredProjects.length === 0 ? (
+        {dashboardStatus === 'loading' && <p className="tf-status" role="status">프로젝트를 불러오는 중입니다.</p>}
+        {dashboardStatus === 'ready' && projects.length === 0 && (
+          <p className="tf-empty">아직 프로젝트가 없습니다. 새 프로젝트를 만들어 시작하세요.</p>
+        )}
+        {dashboardStatus === 'ready' && projects.length > 0 && filteredProjects.length === 0 && (
           <p className="tf-empty">검색 결과가 없습니다.</p>
-        ) : null}
+        )}
 
         {filteredProjects.map((project) => {
           const allProjectTasks = tasks.filter((task) => task.projectId === project.id)
@@ -1446,7 +1460,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
               aria-label={project.name}
             >
               {syncErrors.has(project.id) && (
-                <p role="status">작업 동기화를 다시 시도하고 있습니다.</p>
+                <p className="tf-status" role="status">작업 동기화를 다시 시도하고 있습니다.</p>
               )}
               <ProjectCollaboration
                 projectId={project.id}
@@ -1458,6 +1472,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
                       <>
                         <input
                           type="text"
+                          autoFocus
                           aria-label="프로젝트 이름 수정"
                           value={editName}
                           onChange={(e) =>
@@ -1476,13 +1491,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
                           }}
                         />
 
-                        <div
-                          style={{
-                            display: 'flex',
-                            gap: '8px',
-                            marginTop: '10px',
-                          }}
-                        >
+                        <div className="tf-actions">
                           <button
                             onClick={() =>
                               handleUpdateProject(project.id)
@@ -1568,8 +1577,8 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
                           borderTop: '1px solid #e2e8f0',
                         }}
                       >
-                        <h3>
-                          작업 보드 ({projectTasks.length})
+                        <h3 id={`board-title-${project.id}`}>
+                          {project.name} 작업 보드 ({projectTasks.length})
                         </h3>
                         <div className="tf-assignee-filter">
                           <label htmlFor={`assignee-filter-${project.id}`}>담당자 필터</label>
@@ -1598,11 +1607,11 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
                           </select>
                         </div>
 
-                        {projectHasTaskFilter && projectTasks.length === 0 && (
+                        {!syncErrors.has(project.id) && projectHasTaskFilter && projectTasks.length === 0 && (
                           <p className="tf-empty">검색 조건에 맞는 작업이 없습니다.</p>
                         )}
 
-                        <div className="tf-board">
+                        <ScrollRegion kind="board" labelId={`board-title-${project.id}`}>
                           {columns.map((column) => {
                             const columnTasks = projectTasks.filter(
                               (task) =>
@@ -1661,7 +1670,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
                                   </span>
                                 </div>
 
-                                {columnTasks.length === 0 && (
+                                {!syncErrors.has(project.id) && columnTasks.length === 0 && (
                                   <p className="tf-column-empty">
                                     작업이 없습니다.
                                   </p>
@@ -1674,19 +1683,20 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
                                 <button
                                   className="tf-add-task"
                                   aria-label={`${column.label} 열에 새 작업 추가`}
-                                  onClick={() =>
+                                  onClick={(event) => {
+                                    addTaskTrigger.current = event.currentTarget
                                     handleStartTask(
                                       project.id,
                                       column.status
                                     )
-                                  }
+                                  }}
                                 >
                                   + 새 작업 추가
                                 </button>
                               </div>
                             )
                           })}
-                        </div>
+                        </ScrollRegion>
 
                         {/* 작업 카드 생성 입력창 */}
                         {taskProjectId === project.id && (
@@ -1807,13 +1817,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
                               }
                             />
 
-                            <div
-                              style={{
-                                display: 'flex',
-                                gap: '8px',
-                                marginTop: '12px',
-                              }}
-                            >
+                            <div className="tf-actions">
                               <button
                                 onClick={() =>
                                   handleCreateTask(project.id)
@@ -1827,7 +1831,10 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
                               </button>
 
                               <button
-                                onClick={handleCancelTask}
+                                onClick={() => {
+                                  handleCancelTask()
+                                  addTaskTrigger.current?.focus()
+                                }}
                                 disabled={creatingTask}
                               >
                                 취소
