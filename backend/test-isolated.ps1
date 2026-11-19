@@ -1,0 +1,40 @@
+$ErrorActionPreference = 'Stop'
+$container = 'teamflow-test-' + [Guid]::NewGuid().ToString('N')
+$previousDockerPassword = $env:POSTGRES_PASSWORD
+$previousTestPassword = $env:TEAMFLOW_TEST_DB_PASSWORD
+$previousTestUrl = $env:TEAMFLOW_TEST_DB_URL
+$started = $false
+
+Push-Location -LiteralPath $PSScriptRoot
+try {
+    $env:TEAMFLOW_TEST_DB_PASSWORD = [Guid]::NewGuid().ToString('N')
+    $env:POSTGRES_PASSWORD = $env:TEAMFLOW_TEST_DB_PASSWORD
+    docker run --detach --rm --name $container --publish '127.0.0.1::5432' --tmpfs '/var/lib/postgresql/data' --env POSTGRES_PASSWORD --env POSTGRES_USER=teamflow_test --env POSTGRES_DB=teamflow_test postgres:16-alpine | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Could not start isolated PostgreSQL' }
+    $started = $true
+    $binding = docker port $container 5432/tcp
+    if ($LASTEXITCODE -ne 0 -or $binding -notmatch '^127\.0\.0\.1:(\d+)$') {
+        throw 'Could not resolve isolated PostgreSQL port'
+    }
+    $env:TEAMFLOW_TEST_DB_URL = 'jdbc:postgresql://127.0.0.1:' + $Matches[1] + '/teamflow_test'
+
+    $ready = $false
+    for ($attempt = 0; $attempt -lt 30; $attempt++) {
+        docker exec $container pg_isready -h 127.0.0.1 -U teamflow_test -d teamflow_test | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            $ready = $true
+            break
+        }
+        Start-Sleep -Seconds 1
+    }
+    if (!$ready) { throw 'Isolated PostgreSQL did not become ready' }
+
+    .\mvnw.cmd test
+    if ($LASTEXITCODE -ne 0) { throw 'Backend test command failed' }
+} finally {
+    if ($started) { docker stop $container | Out-Null }
+    $env:POSTGRES_PASSWORD = $previousDockerPassword
+    $env:TEAMFLOW_TEST_DB_PASSWORD = $previousTestPassword
+    $env:TEAMFLOW_TEST_DB_URL = $previousTestUrl
+    Pop-Location
+}

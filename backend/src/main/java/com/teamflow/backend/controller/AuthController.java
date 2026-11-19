@@ -3,15 +3,18 @@ package com.teamflow.backend.controller;
 
 import com.teamflow.backend.entity.User;
 import com.teamflow.backend.repository.UserRepository;
+import com.teamflow.backend.service.SignupVerificationService;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -19,12 +22,15 @@ import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -33,13 +39,19 @@ public class AuthController {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final SignupVerificationService signupVerification;
 
     public AuthController(
             UserRepository userRepository,
-            PasswordEncoder passwordEncoder) {
+            PasswordEncoder passwordEncoder,
+            SignupVerificationService signupVerification) {
 
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.signupVerification = signupVerification;
+    }
+
+    public record SignupCodeRequest(@NotBlank @Email @Size(max = 255) String email) {
     }
 
     // 회원가입 요청 데이터
@@ -50,12 +62,31 @@ public class AuthController {
 
             @NotBlank(message = "이메일을 입력해 주세요.")
             @Email(message = "올바른 이메일 형식을 입력해 주세요.")
+            @Size(max = 255)
             String email,
 
             @NotBlank(message = "비밀번호를 입력해 주세요.")
             @Size(min = 8, message = "비밀번호는 8자 이상이어야 합니다.")
-            String password
+            String password,
+
+            @NotBlank
+            @Pattern(regexp = "[0-9]{6}")
+            String code
     ) {
+    }
+
+    @PostMapping("/signup/code")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public Map<String, Integer> sendSignupCode(
+            @Valid @RequestBody SignupCodeRequest request, HttpServletRequest httpRequest) {
+        signupVerification.issue(normalizeEmail(request.email()), httpRequest.getRemoteAddr());
+        return Map.of("resendAfterSeconds", SignupVerificationService.RESEND_SECONDS);
+    }
+
+    @ExceptionHandler({MethodArgumentNotValidException.class, HttpMessageNotReadableException.class})
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Map<String, String> invalidRequest() {
+        return Map.of("message", "입력한 정보를 확인해 주세요.");
     }
 
     // 로그인 요청 데이터
@@ -75,7 +106,7 @@ public class AuthController {
             @Valid @RequestBody SignupRequest request) {
 
         String name = request.name().trim();
-        String email = request.email().trim().toLowerCase();
+        String email = normalizeEmail(request.email());
 
         if (name.isBlank()) {
             throw new ResponseStatusException(
@@ -91,23 +122,7 @@ public class AuthController {
             );
         }
 
-        if (userRepository.existsByEmail(email)) {
-            throw new ResponseStatusException(
-                    HttpStatus.CONFLICT,
-                    "이미 가입된 이메일입니다."
-            );
-        }
-
-        String encodedPassword =
-                passwordEncoder.encode(request.password());
-
-        User user = new User(
-                name,
-                email,
-                encodedPassword
-        );
-
-        User savedUser = userRepository.save(user);
+        User savedUser = signupVerification.complete(email, name, request.password(), request.code());
 
         return Map.of(
                 "id", savedUser.getId(),
@@ -123,9 +138,11 @@ public class AuthController {
             @Valid @RequestBody LoginRequest request,
             HttpServletRequest httpRequest) {
 
-        String email = request.email().trim().toLowerCase();
+        String email = request.email().trim().toLowerCase(Locale.ROOT);
+        String legacyEmail = request.email().trim().toLowerCase(Locale.getDefault());
 
         User user = userRepository.findByEmail(email)
+                .or(() -> email.equals(legacyEmail) ? Optional.empty() : userRepository.findByEmail(legacyEmail))
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.UNAUTHORIZED,
                         "이메일 또는 비밀번호가 올바르지 않습니다."
@@ -239,5 +256,13 @@ public class AuthController {
 
     private static boolean exceedsPasswordByteLimit(String password) {
         return password.getBytes(StandardCharsets.UTF_8).length > BCRYPT_MAX_PASSWORD_BYTES;
+    }
+
+    private static String normalizeEmail(String email) {
+        String normalized = email.trim().toLowerCase(Locale.ROOT);
+        if (normalized.length() > 255) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+        }
+        return normalized;
     }
 }
