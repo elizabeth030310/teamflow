@@ -10,6 +10,23 @@ type User = {
   email: string
 }
 
+function trackAccountHeader(header: HTMLElement | null) {
+  if (!header) return
+
+  const root = document.documentElement
+  const updateHeight = () => {
+    root.style.setProperty('--tf-account-height', `${header.offsetHeight}px`)
+  }
+  const observer = new ResizeObserver(updateHeight)
+  updateHeight()
+  observer.observe(header, { box: 'border-box' })
+
+  return () => {
+    observer.disconnect()
+    root.style.removeProperty('--tf-account-height')
+  }
+}
+
 function AuthenticatedApp() {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
@@ -157,7 +174,7 @@ function AuthenticatedApp() {
 
   return (
     <>
-      <header className="tf-app tf-account">
+      <header className="tf-app tf-account" ref={trackAccountHeader}>
         <span><strong>{user.name}</strong>님, 환영합니다!</span>
         <button
           type="button"

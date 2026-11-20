@@ -16,6 +16,10 @@ body:has(.tf-app) {
   background: #f3f6fb;
 }
 
+html:has(.tf-account) {
+  scroll-padding-top: var(--tf-account-height, 0px);
+}
+
 .tf-app h1,
 .tf-app h2,
 .tf-app h3,
@@ -140,6 +144,12 @@ body:has(.tf-app) {
 .tf-app .tf-hero a:focus-visible { outline-color: #fff; }
 
 .tf-account {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  max-height: 100vh;
+  max-height: 100dvh;
+  overflow-y: auto;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
