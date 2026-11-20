@@ -77,7 +77,7 @@ public class NotificationService {
                 CROSS JOIN LATERAL (
                     SELECT projects.owner_id AS user_id
                     UNION SELECT tasks.assignee_id
-                    UNION SELECT author_id FROM task_comments WHERE task_id = tasks.id
+                    UNION SELECT author_id FROM task_comments WHERE task_id = tasks.id AND NOT deleted
                 ) recipient
                 WHERE tasks.id = ? AND recipient.user_id <> ? AND
                 """ + CAN_ACCESS + " RETURNING recipient_id", Long.class, taskId, actorId));

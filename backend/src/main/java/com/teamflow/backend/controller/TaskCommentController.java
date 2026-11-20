@@ -43,11 +43,12 @@ public class TaskCommentController {
     }
 
     public record CommentResponse(Long id, Long taskId, Long authorId, String authorName, String content,
-                                  Instant createdAt) {
+                                  Instant createdAt, Long parentCommentId, boolean deleted) {
         static CommentResponse from(TaskComment comment) {
             User author = comment.getAuthor();
             return new CommentResponse(comment.getId(), comment.getTask().getId(), author.getId(),
-                    author.getName(), comment.getContent(), comment.getCreatedAt());
+                    author.getName(), comment.getContent(), comment.getCreatedAt(),
+                    comment.getParentCommentId(), comment.isDeleted());
         }
     }
 
@@ -66,20 +67,39 @@ public class TaskCommentController {
     public CommentResponse createComment(@PathVariable Long taskId, @RequestBody JsonNode request,
                                          HttpSession session) {
         Long userId = access.currentUserId(session);
-        var target = access.requireAccessibleTaskWithProject(taskId, userId);
-        JsonNode contentNode = request.get("content");
-        String content = contentNode != null && contentNode.isString() ? contentNode.stringValue().strip() : "";
-        if (content.isEmpty() || content.codePointCount(0, content.length()) > TaskComment.MAX_CONTENT_LENGTH) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "댓글은 1자 이상 1,000자 이하여야 합니다.");
+        var target = access.lockAccessibleTask(taskId, userId);
+        String content = requireContent(request);
+        Long parentCommentId = readParentCommentId(request);
+        if (parentCommentId != null) {
+            TaskComment parent = requireActiveComment(taskId, parentCommentId);
+            if (parent.getParentCommentId() != null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "대댓글에는 답글을 달 수 없습니다.");
+            }
         }
 
         User author = users.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "로그인이 필요합니다."));
-        TaskComment saved = comments.save(new TaskComment(target.task(), author, content));
+        TaskComment saved = comments.save(new TaskComment(target.task(), author, content, parentCommentId));
         activities.record(TaskActivity.commentCreated(target.project(), target.task(), author));
         notifications.commented(taskId, userId);
         events.publishEvent(new CommentChange(target.project().getId(), taskId));
         return CommentResponse.from(saved);
+    }
+
+    @PatchMapping("/{commentId}")
+    @Transactional
+    public CommentResponse editComment(@PathVariable Long taskId, @PathVariable Long commentId,
+                                       @RequestBody JsonNode request, HttpSession session) {
+        Long userId = access.currentUserId(session);
+        var target = access.lockAccessibleTask(taskId, userId);
+        TaskComment comment = requireActiveComment(taskId, commentId);
+        requireAuthor(comment, userId);
+        if (request.has("parentCommentId")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "댓글의 부모는 변경할 수 없습니다.");
+        }
+        comment.edit(requireContent(request));
+        events.publishEvent(new CommentChange(target.project().getId(), taskId));
+        return CommentResponse.from(comment);
     }
 
     @DeleteMapping("/{commentId}")
@@ -87,15 +107,47 @@ public class TaskCommentController {
     @Transactional
     public void deleteComment(@PathVariable Long taskId, @PathVariable Long commentId, HttpSession session) {
         Long userId = access.currentUserId(session);
-        var target = access.requireAccessibleTaskWithProject(taskId, userId);
-        TaskComment comment = comments.findByIdAndTaskId(commentId, taskId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "댓글을 찾을 수 없습니다."));
-        User author = comment.getAuthor();
-        if (!userId.equals(author.getId())) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "댓글 작성자만 삭제할 수 있습니다.");
+        var target = access.lockAccessibleTask(taskId, userId);
+        TaskComment comment = requireActiveComment(taskId, commentId);
+        requireAuthor(comment, userId);
+        if (comment.getParentCommentId() == null && comments.existsByParentCommentId(commentId)) {
+            comment.removeContent();
+        } else {
+            comments.delete(comment);
         }
-        comments.delete(comment);
-        activities.record(TaskActivity.commentDeleted(target.project(), target.task(), author));
+        activities.record(TaskActivity.commentDeleted(target.project(), target.task(), comment.getAuthor()));
         events.publishEvent(new CommentChange(target.project().getId(), taskId));
+    }
+
+    private TaskComment requireActiveComment(Long taskId, Long commentId) {
+        return comments.findByIdAndTaskId(commentId, taskId)
+                .filter(comment -> !comment.isDeleted())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "댓글을 찾을 수 없습니다."));
+    }
+
+    private void requireAuthor(TaskComment comment, Long userId) {
+        if (!userId.equals(comment.getAuthor().getId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "댓글 작성자만 수정하거나 삭제할 수 있습니다.");
+        }
+    }
+
+    private String requireContent(JsonNode request) {
+        JsonNode contentNode = request.get("content");
+        String content = contentNode != null && contentNode.isString() ? contentNode.stringValue().strip() : "";
+        if (content.isEmpty() || content.codePointCount(0, content.length()) > TaskComment.MAX_CONTENT_LENGTH) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "댓글은 1자 이상 1,000자 이하여야 합니다.");
+        }
+        return content;
+    }
+
+    private Long readParentCommentId(JsonNode request) {
+        JsonNode parent = request.get("parentCommentId");
+        if (parent == null || parent.isNull()) {
+            return null;
+        }
+        if (!parent.isIntegralNumber() || !parent.canConvertToLong() || parent.longValue() <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "부모 댓글 ID는 양의 정수여야 합니다.");
+        }
+        return parent.longValue();
     }
 }

@@ -14,6 +14,8 @@ public interface TaskCommentRepository extends JpaRepository<TaskComment, Long> 
     @EntityGraph(attributePaths = "author")
     List<TaskComment> findByTaskIdOrderByCreatedAtAscIdAsc(Long taskId);
 
+    boolean existsByParentCommentId(Long parentCommentId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<TaskComment> findByIdAndTaskId(Long id, Long taskId);
 }

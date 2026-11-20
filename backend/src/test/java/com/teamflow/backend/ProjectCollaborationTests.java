@@ -538,6 +538,86 @@ class ProjectCollaborationTests {
     }
 
     @Test
+    void commentRepliesStayWithinOneLevelAndTheirTask() throws Exception {
+        respond(invitee, invite(invitee), "accept").andExpect(status().isOk());
+        long taskId = createTask(session(owner));
+        long otherTaskId = createTask(session(owner), addProject(owner));
+        postTaskComment(owner, taskId, """
+                {"content":"Parent"}
+                """).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.parentCommentId").value(nullValue()))
+                .andExpect(jsonPath("$.deleted").value(false));
+        Long parentId = comments.findByTaskIdOrderByCreatedAtAscIdAsc(taskId).getFirst().getId();
+        String replyBody = """
+                {"content":"Reply","parentCommentId":%d}
+                """.formatted(parentId);
+        postTaskComment(outsider, taskId, replyBody).andExpect(status().isNotFound());
+        postTaskComment(owner, otherTaskId, replyBody).andExpect(status().isNotFound());
+        postTaskComment(invitee, taskId, replyBody).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.parentCommentId").value(parentId));
+        Long replyId = comments.findByTaskIdOrderByCreatedAtAscIdAsc(taskId).getLast().getId();
+        for (String invalidParent : new String[]{replyId.toString(), "0", "1.5", "\"1\"", "9223372036854775808"}) {
+            postTaskComment(invitee, taskId, """
+                    {"content":"Invalid","parentCommentId":%s}
+                    """.formatted(invalidParent)).andExpect(status().isBadRequest());
+        }
+
+        editTaskComment(owner, taskId, replyId, """
+                {"content":"Edited"}
+                """).andExpect(status().isForbidden());
+        editTaskComment(outsider, taskId, replyId, """
+                {"content":"Edited"}
+                """).andExpect(status().isNotFound());
+        editTaskComment(owner, otherTaskId, replyId, """
+                {"content":"Edited"}
+                """).andExpect(status().isNotFound());
+        editTaskComment(invitee, taskId, replyId, replyBody).andExpect(status().isBadRequest());
+        editTaskComment(invitee, taskId, replyId, """
+                {"content":"   "}
+                """).andExpect(status().isBadRequest());
+        editTaskComment(invitee, taskId, replyId, """
+                {"content":"  Edited  "}
+                """).andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").value("Edited"))
+                .andExpect(jsonPath("$.parentCommentId").value(parentId));
+
+        String commentsPath = "/api/tasks/{taskId}/comments";
+        String commentPath = commentsPath + "/{commentId}";
+        mvc.perform(delete(commentPath, taskId, replyId).with(user(owner.getEmail())).session(session(owner)))
+                .andExpect(status().isForbidden());
+        mvc.perform(delete(commentPath, taskId, parentId).with(user(owner.getEmail())).session(session(owner)))
+                .andExpect(status().isNoContent());
+        mvc.perform(get(commentsPath, taskId).with(user(invitee.getEmail())).session(session(invitee)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(parentId))
+                .andExpect(jsonPath("$[0].deleted").value(true))
+                .andExpect(jsonPath("$[0].content").value(""))
+                .andExpect(jsonPath("$[1].parentCommentId").value(parentId))
+                .andExpect(jsonPath("$[1].content").value("Edited"));
+        postTaskComment(invitee, taskId, replyBody).andExpect(status().isNotFound());
+        editTaskComment(owner, taskId, parentId, """
+                {"content":"Restore"}
+                """).andExpect(status().isNotFound());
+
+        mvc.perform(delete("/api/tasks/{id}", taskId).with(user(owner.getEmail())).session(session(owner)))
+                .andExpect(status().isNoContent());
+        assertThat(jdbc.queryForObject("select count(*) from task_comments where task_id = ?",
+                Long.class, taskId)).isZero();
+    }
+
+    private ResultActions postTaskComment(User actor, long taskId, String body) throws Exception {
+        return mvc.perform(post("/api/tasks/{taskId}/comments", taskId)
+                .with(user(actor.getEmail())).session(session(actor))
+                .contentType("application/json").content(body));
+    }
+
+    private ResultActions editTaskComment(User actor, long taskId, Long commentId, String body) throws Exception {
+        return mvc.perform(patch("/api/tasks/{taskId}/comments/{commentId}", taskId, commentId)
+                .with(user(actor.getEmail())).session(session(actor))
+                .contentType("application/json").content(body));
+    }
+
+    @Test
     void deletingTaskKeepsItsActivityUntilProjectIsDeleted() throws Exception {
         respond(invitee, invite(invitee), "accept").andExpect(status().isOk());
         long taskId = createTask(session(owner));
@@ -879,9 +959,13 @@ class ProjectCollaborationTests {
     }
 
     private long createTask(MockHttpSession session) throws Exception {
+        return createTask(session, project);
+    }
+
+    private long createTask(MockHttpSession session, Project targetProject) throws Exception {
         String response = mvc.perform(post("/api/tasks").with(user(owner.getEmail())).session(session)
                         .contentType("application/json")
-                        .content("{\"projectId\":" + project.getId() + ",\"title\":\"private task title\"}"))
+                        .content("{\"projectId\":" + targetProject.getId() + ",\"title\":\"private task title\"}"))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
         var id = Pattern.compile("\"id\"\\s*:\\s*(\\d+)").matcher(response);
         assertThat(id.find()).isTrue();
