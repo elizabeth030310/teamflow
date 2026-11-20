@@ -11,9 +11,10 @@ type User = {
 type AuthPageProps = {
   onLogin: (user: User) => void
   connectionError?: string
+  loginNotice?: string
 }
 
-function AuthPage({ onLogin, connectionError }: AuthPageProps) {
+function AuthPage({ onLogin, connectionError, loginNotice }: AuthPageProps) {
   const [mode, setMode] = useState<'login' | 'signup'>('login')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -168,6 +169,7 @@ function AuthPage({ onLogin, connectionError }: AuthPageProps) {
         <h1>TeamFlow</h1>
         <p className="tf-auth-intro">팀 프로젝트를 한곳에서 관리하세요</p>
         <h2 id="auth-title">{isSignup ? '회원가입' : '로그인'}</h2>
+        {!isSignup && !message && loginNotice && <p className="tf-status" role="status">{loginNotice}</p>}
 
         <form onSubmit={handleSubmit}>
           {isSignup && codeRequested && (

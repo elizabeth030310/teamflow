@@ -152,6 +152,19 @@ body:has(.tf-app) {
 
 .tf-account .tf-error { flex-basis: 100%; margin: 0; }
 
+.tf-password-form {
+  display: grid;
+  flex-basis: 100%;
+  grid-template-columns: minmax(0, 420px);
+  justify-content: end;
+  gap: 14px;
+  padding-block: 12px;
+  border-top: 1px solid var(--tf-border);
+}
+
+.tf-password-form h2,
+.tf-password-form p { margin: 0; }
+
 .tf-auth {
   display: grid;
   place-items: center;
