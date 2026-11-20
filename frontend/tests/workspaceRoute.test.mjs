@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { dashboardHref, myTasksHref, projectHref, projectTabHref, readWorkspaceRoute } from '../src/workspaceRoute.ts'
+import { adminHref, dashboardHref, myTasksHref, projectHref, projectTabHref, readWorkspaceRoute } from '../src/workspaceRoute.ts'
+
+test('the administrator hash does not open an administrator page in the member workspace', () => {
+  assert.equal(adminHref, '#/admin')
+  assert.deepEqual(readWorkspaceRoute(adminHref), { page: 'dashboard', projectId: null, taskId: null })
+})
 
 test('project and task links restore their selected page from the URL', () => {
   assert.deepEqual(readWorkspaceRoute(projectHref(27)), { page: 'project', projectId: 27, taskId: null, tab: 'kanban' })

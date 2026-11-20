@@ -1,5 +1,6 @@
 export const dashboardHref = '#/'
 export const myTasksHref = '#/my-tasks'
+export const adminHref = '#/admin'
 
 export const projectTabs = [
   { id: 'kanban', label: '칸반' },

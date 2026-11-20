@@ -32,9 +32,11 @@ public class ProjectEventStreams {
     private final Set<Subscription> subscriptions = ConcurrentHashMap.newKeySet();
     private final ExecutorService deliveryThreads = Executors.newVirtualThreadPerTaskExecutor();
     private final ProjectAccess access;
+    private final AccountAccess accounts;
 
-    public ProjectEventStreams(ProjectAccess access) {
+    public ProjectEventStreams(ProjectAccess access, AccountAccess accounts) {
         this.access = access;
+        this.accounts = accounts;
     }
 
     public synchronized SseEmitter subscribe(Long projectId, Long userId, HttpSession session) {
@@ -144,7 +146,8 @@ public class ProjectEventStreams {
     }
 
     private boolean hasSession(Subscription subscription) {
-        return subscription.userId.equals(subscription.session.getAttribute("userId"));
+        return subscription.userId.equals(subscription.session.getAttribute("userId"))
+                && accounts.current(subscription.session).isPresent();
     }
 
     private void close(Subscription subscription) {

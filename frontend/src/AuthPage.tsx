@@ -1,12 +1,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-
-type User = {
-  id: number
-  name: string
-  email: string
-}
+import type { User } from './authUser'
 
 type AuthPageProps = {
   onLogin: (user: User) => void

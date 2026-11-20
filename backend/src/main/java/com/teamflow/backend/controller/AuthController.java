@@ -3,6 +3,7 @@ package com.teamflow.backend.controller;
 
 import com.teamflow.backend.entity.User;
 import com.teamflow.backend.repository.UserRepository;
+import com.teamflow.backend.service.AccountAccess;
 import com.teamflow.backend.service.SignupVerificationService;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -149,7 +150,8 @@ public class AuthController {
                         "이메일 또는 비밀번호가 올바르지 않습니다."
                 ));
 
-        if (exceedsPasswordByteLimit(request.password()) || !passwordEncoder.matches(
+        if (user.getAccountStatus() != User.Status.ACTIVE
+                || exceedsPasswordByteLimit(request.password()) || !passwordEncoder.matches(
                 request.password(),
                 user.getPassword())) {
 
@@ -197,6 +199,7 @@ public class AuthController {
 
         // 기존 사용자 ID 세션 정보도 유지
         session.setAttribute("userId", user.getId());
+        session.setAttribute(AccountAccess.SESSION_REVISION, user.getAccessRevision());
 
         return Map.of(
                 "id", user.getId(),
@@ -286,7 +289,8 @@ public class AuthController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "현재 비밀번호가 올바르지 않습니다.");
         }
 
-        if (userRepository.updatePassword(userId, previousHash, passwordEncoder.encode(newPassword)) == 0) {
+        if (userRepository.updatePassword(userId, previousHash, passwordEncoder.encode(newPassword),
+                AccountAccess.sessionRevision(session)) == 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "비밀번호가 변경되었습니다. 다시 로그인해 주세요.");
         }
 

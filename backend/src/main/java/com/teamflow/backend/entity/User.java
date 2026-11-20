@@ -14,11 +14,18 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "users")
+@org.hibernate.annotations.DynamicUpdate
 public class User {
 
     public enum Role {
         USER,
         ADMIN
+    }
+
+    public enum Status {
+        ACTIVE,
+        SUSPENDED,
+        WITHDRAWN
     }
 
     @Id
@@ -40,6 +47,13 @@ public class User {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, updatable = false, length = 20)
     private Role role = Role.USER;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private Status accountStatus = Status.ACTIVE;
+
+    @Column(nullable = false)
+    private long accessRevision;
 
     // 가입 날짜
     @Column(nullable = false, updatable = false)
@@ -98,5 +112,18 @@ public class User {
 
     public Role getRole() {
         return role;
+    }
+
+    public Status getAccountStatus() {
+        return accountStatus;
+    }
+
+    public long getAccessRevision() {
+        return accessRevision;
+    }
+
+    public void changeAccountStatus(Status status) {
+        accountStatus = status;
+        accessRevision++;
     }
 }

@@ -2,13 +2,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import App from './App'
+import AdminDashboard from './AdminDashboard'
 import AuthPage from './AuthPage'
-
-type User = {
-  id: number
-  name: string
-  email: string
-}
+import type { User } from './authUser'
+import { adminHref, dashboardHref } from './workspaceRoute'
 
 function trackAccountHeader(header: HTMLElement | null) {
   if (!header) return
@@ -40,6 +37,19 @@ function AuthenticatedApp() {
     setPasswordError('')
     setUser(null)
   }, [])
+  useEffect(() => {
+    if (!user) return
+    function syncRoute() {
+      if (user?.role === 'ADMIN' && window.location.hash !== adminHref) {
+        window.history.replaceState(null, '', adminHref)
+      } else if (user?.role === 'USER' && window.location.hash === adminHref) {
+        window.location.replace(dashboardHref)
+      }
+    }
+    syncRoute()
+    window.addEventListener('hashchange', syncRoute)
+    return () => window.removeEventListener('hashchange', syncRoute)
+  }, [user])
 
   useEffect(() => {
     let cancelled = false
@@ -220,7 +230,9 @@ function AuthenticatedApp() {
           </form>
         )}
       </header>
-      <App key={user.id} userId={user.id} onSessionExpired={expireSession} />
+      {user.role === 'ADMIN'
+        ? <AdminDashboard key={user.id} onSessionExpired={expireSession} />
+        : <App key={user.id} userId={user.id} onSessionExpired={expireSession} />}
     </>
   )
 }

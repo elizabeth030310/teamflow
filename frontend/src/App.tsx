@@ -29,7 +29,10 @@ type Project = {
 
 const statusLabels = new Map(columns.map(({ status, label }) => [status, label]))
 
-function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: () => void }) {
+function App({ userId, onSessionExpired }: {
+  userId: number
+  onSessionExpired: () => void
+}) {
   const [projects, setProjects] = useState<Project[]>([])
   const [workspaceHash, setWorkspaceHash] = useState(() => window.location.hash)
   const [sidebarOpen, setSidebarOpen] = useState(false)

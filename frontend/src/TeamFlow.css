@@ -376,6 +376,34 @@ html:has(.tf-account) {
 
 .tf-chart h3 { margin-top: 0; }
 
+.tf-admin { max-width: 72rem; margin-inline: auto; padding: var(--tf-pad); }
+.tf-admin h2 { margin-top: 0; }
+.tf-admin > section + section { margin-top: var(--tf-pad); }
+.tf-admin-controls { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+.tf-admin-controls label { display: grid; gap: 6px; }
+.tf-admin-table { overflow-x: auto; }
+.tf-admin-dialog { width: min(32rem, calc(100% - 32px)); color: var(--tf-text); }
+.tf-admin-dialog form { display: grid; gap: 12px; }
+.tf-admin-dialog p { margin: 0; }
+.tf-admin-dialog textarea { width: 100%; resize: vertical; }
+.tf-admin-dialog::backdrop { background: rgb(0 0 0 / 55%); }
+
+.tf-admin-users {
+  width: 100%;
+  min-width: 36rem;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.tf-admin-users :is(th, td) {
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--tf-border);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.tf-admin-users th { color: var(--tf-muted); }
+
 .tf-tools {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

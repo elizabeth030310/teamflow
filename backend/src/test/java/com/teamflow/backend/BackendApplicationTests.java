@@ -1,16 +1,17 @@
 package com.teamflow.backend;
 
+import com.teamflow.backend.entity.Project;
 import com.teamflow.backend.entity.User;
+import com.teamflow.backend.repository.ProjectRepository;
 import com.teamflow.backend.repository.UserRepository;
 import com.teamflow.backend.service.SignupCodeMailer;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.io.FileSystemResource;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -20,6 +21,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.server.ResponseStatusException;
 import org.mockito.ArgumentCaptor;
+import tools.jackson.databind.ObjectMapper;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -29,9 +31,9 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import javax.sql.DataSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
@@ -49,8 +51,8 @@ class BackendApplicationTests {
 	@Autowired
 	private WebApplicationContext context;
 	@Autowired private JdbcTemplate jdbc;
-	@Autowired private DataSource dataSource;
 	@Autowired private UserRepository users;
+	@Autowired private ProjectRepository projects;
 	@Autowired private PasswordEncoder passwords;
 	@MockitoBean private SignupCodeMailer mailer;
 
@@ -59,39 +61,104 @@ class BackendApplicationTests {
 	}
 
 	@Test
-	void adminSummaryUsesTheCurrentDatabaseRole() throws Exception {
+	void administratorCanManageMembersAndRevokeExistingSessions() throws Exception {
 		MockMvc mvc = mvc();
-		String email = newEmail();
+		String adminEmail = "admin-fixture@example.test";
 		String password = "example-password";
-		User account = users.save(new User("Account", email, passwords.encode(password)));
-		String summary = "/api/admin/summary";
+		jdbc.update("UPDATE users SET password = ? WHERE id = 3", passwords.encode(password));
+		User member = users.save(new User("Member", newEmail(), passwords.encode(password)));
+		String list = "/api/admin/users";
+		String audit = "/api/admin/audit";
+		String change = list + "/" + member.getId() + "/status";
 
-		mvc.perform(get(summary)).andExpect(status().isUnauthorized());
-		MockHttpSession userSession = (MockHttpSession) login(mvc, email, password)
-				.andExpect(status().isOk())
-				.andExpect(jsonPath("$.role").value("USER"))
-				.andReturn().getRequest().getSession(false);
-		mvc.perform(get(summary).session(userSession)).andExpect(status().isForbidden());
+		mvc.perform(get(list)).andExpect(status().isUnauthorized());
+		mvc.perform(get(audit)).andExpect(status().isUnauthorized());
+		changeMemberStatus(mvc, null, change, "SUSPENDED", 0, "review").andExpect(status().isUnauthorized());
+		MockHttpSession memberSession = (MockHttpSession) login(mvc, member.getEmail(), password)
+				.andExpect(status().isOk()).andReturn().getRequest().getSession(false);
+		mvc.perform(get(list).session(memberSession)).andExpect(status().isForbidden());
+		mvc.perform(get(audit).session(memberSession)).andExpect(status().isForbidden());
+		changeMemberStatus(mvc, memberSession, change, "SUSPENDED", 0, "review").andExpect(status().isForbidden());
+		assertThatThrownBy(() -> jdbc.update("UPDATE users SET role = 'ADMIN' WHERE id = ?", member.getId()))
+				.isInstanceOf(DataIntegrityViolationException.class);
+		assertThatThrownBy(() -> jdbc.update("UPDATE users SET role = 'USER' WHERE id = 3"))
+				.isInstanceOf(DataIntegrityViolationException.class);
+		assertThatThrownBy(() -> jdbc.update("UPDATE users SET email = ? WHERE id = 3", newEmail()))
+				.isInstanceOf(DataIntegrityViolationException.class);
 
-		jdbc.update("UPDATE users SET role = 'ADMIN' WHERE id = ?", account.getId());
-		new ResourceDatabasePopulator(new FileSystemResource("db/192-a-8-user-role.sql")).execute(dataSource);
-		MockHttpSession adminSession = (MockHttpSession) login(mvc, email, password)
-				.andExpect(status().isOk())
-				.andExpect(jsonPath("$.role").value("ADMIN"))
-				.andExpect(jsonPath("$.password").doesNotHaveJsonPath())
+		MockHttpSession adminSession = (MockHttpSession) login(mvc, adminEmail, password)
+				.andExpect(status().isOk()).andExpect(jsonPath("$.role").value("ADMIN"))
 				.andReturn().getRequest().getSession(false);
-		mvc.perform(get("/api/auth/me").session(adminSession))
-				.andExpect(status().isOk())
-				.andExpect(jsonPath("$.role").value("ADMIN"));
-		mvc.perform(get(summary).session(adminSession))
+		mvc.perform(get(list).session(adminSession))
 				.andExpect(status().isOk())
 				.andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
-				.andExpect(jsonPath("$.userCount").value(users.count()))
-				.andExpect(jsonPath("$.email").doesNotHaveJsonPath())
-				.andExpect(jsonPath("$.password").doesNotHaveJsonPath());
+				.andExpect(jsonPath("$[*].password").isEmpty())
+				.andExpect(jsonPath("$[?(@.email == '%s')].status".formatted(member.getEmail())).value("ACTIVE"));
+		changeMemberStatus(mvc, adminSession, list + "/3/status", "SUSPENDED", 0, "review")
+				.andExpect(status().isForbidden());
+		changeMemberStatus(mvc, adminSession, list + "/2147483647/status", "SUSPENDED", 0, "review")
+				.andExpect(status().isNotFound());
+		changeMemberStatus(mvc, adminSession, change, "SUSPENDED", 0, " ")
+				.andExpect(status().isBadRequest());
+		mvc.perform(post(change).session(adminSession).contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"status":"SUSPENDED","revision":0,"reason":"review"}
+								"""))
+				.andExpect(status().isForbidden());
 
-		jdbc.update("UPDATE users SET role = 'USER' WHERE id = ?", account.getId());
-		mvc.perform(get(summary).session(adminSession)).andExpect(status().isForbidden());
+		try (var executor = Executors.newFixedThreadPool(2)) {
+			var first = executor.submit(() -> changeMemberStatus(mvc, adminSession, change, "SUSPENDED", 0, "review")
+					.andReturn().getResponse().getStatus());
+			var retry = executor.submit(() -> changeMemberStatus(mvc, adminSession, change, "SUSPENDED", 0, "review")
+					.andReturn().getResponse().getStatus());
+			assertThat(first.get(10, TimeUnit.SECONDS)).isEqualTo(204);
+			assertThat(retry.get(10, TimeUnit.SECONDS)).isEqualTo(204);
+		}
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM admin_member_audit WHERE target_id = ?", Long.class,
+				member.getId())).isEqualTo(1L);
+		mvc.perform(get("/api/auth/me").session(memberSession)).andExpect(status().isUnauthorized());
+		mvc.perform(get("/api/projects").session(memberSession)).andExpect(status().isUnauthorized());
+		login(mvc, member.getEmail(), password).andExpect(status().isUnauthorized());
+
+		changeMemberStatus(mvc, adminSession, change, "ACTIVE", 1, "resolved").andExpect(status().isNoContent());
+		mvc.perform(get("/api/auth/me").session(memberSession)).andExpect(status().isUnauthorized());
+		MockHttpSession restored = (MockHttpSession) login(mvc, member.getEmail(), password)
+				.andExpect(status().isOk()).andReturn().getRequest().getSession(false);
+		mvc.perform(get("/api/projects").session(restored)).andExpect(status().isOk());
+		changeMemberStatus(mvc, adminSession, change, "SUSPENDED", 0, "review").andExpect(status().isConflict());
+
+		Project retainedProject = new Project("Retained project", "Collaboration history");
+		retainedProject.setOwner(member);
+		long projectId = projects.save(retainedProject).getId();
+		changeMemberStatus(mvc, adminSession, change, "WITHDRAWN", 2, "withdrawal").andExpect(status().isNoContent());
+		mvc.perform(get("/api/auth/me").session(restored)).andExpect(status().isUnauthorized());
+		login(mvc, member.getEmail(), password).andExpect(status().isUnauthorized());
+		changeMemberStatus(mvc, adminSession, change, "ACTIVE", 3, "review").andExpect(status().isConflict());
+		assertThat(users.findById(member.getId()).orElseThrow().getAccountStatus()).isEqualTo(User.Status.WITHDRAWN);
+		assertThat(projects.findByIdAndOwnerId(projectId, member.getId())).isPresent();
+		mvc.perform(get(audit).session(adminSession)).andExpect(status().isOk())
+				.andExpect(jsonPath("$[0].actorId").value(3))
+				.andExpect(jsonPath("$[0].targetId").value(member.getId()))
+				.andExpect(jsonPath("$[0].fromStatus").value("ACTIVE"))
+				.andExpect(jsonPath("$[0].toStatus").value("WITHDRAWN"))
+				.andExpect(jsonPath("$[0].reason").value("withdrawal"));
+
+		try {
+			jdbc.update("UPDATE users SET account_status = 'SUSPENDED', access_revision = 1 WHERE id = 3");
+			mvc.perform(get(audit).session(adminSession)).andExpect(status().isUnauthorized());
+			login(mvc, adminEmail, password).andExpect(status().isUnauthorized());
+		} finally {
+			jdbc.update("UPDATE users SET account_status = 'ACTIVE', access_revision = 2 WHERE id = 3");
+		}
+	}
+
+	private ResultActions changeMemberStatus(MockMvc mvc, MockHttpSession session, String path,
+											 String status, long revision, String reason) throws Exception {
+		var request = post(path).contentType(MediaType.APPLICATION_JSON).header("X-TeamFlow-Admin", "member-status")
+				.content("""
+						{"status":"%s","revision":%s,"reason":"%s"}
+						""".formatted(status, revision, reason));
+		return mvc.perform(session == null ? request : request.session(session));
 	}
 
 	@Test
@@ -113,7 +180,7 @@ class BackendApplicationTests {
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.role").value("USER"))
 				.andReturn().getRequest().getSession(false);
-		mvc.perform(get("/api/admin/summary").session(session)).andExpect(status().isForbidden());
+		mvc.perform(get("/api/admin/users").session(session)).andExpect(status().isForbidden());
 	}
 
 	@Test
