@@ -1182,6 +1182,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
             )}
             {commentPanel && (
               <TaskComments
+                key={task.id}
                 taskId={task.id}
                 userId={userId}
                 revision={commentPanel.revision}

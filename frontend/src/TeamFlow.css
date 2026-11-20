@@ -733,7 +733,52 @@ html:has(.tf-account) {
 .tf-task-comments li p { white-space: pre-wrap; }
 .tf-task-comments time { color: var(--tf-muted); font-size: 0.75rem; }
 .tf-task-comments textarea { min-height: 64px; }
-.tf-task-comments form button { margin-top: 8px; }
+.tf-task-comments form .tf-comment-actions { margin-top: 8px; }
+
+.tf-comment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tf-task-comments li form { margin-top: 8px; }
+.tf-task-comments .tf-comment-deleted { color: var(--tf-muted); }
+.tf-task-comments .tf-comment-toggle { margin-top: 8px; }
+
+.tf-task-comments .tf-comment-branch {
+  margin: 8px 0 0 clamp(4px, 2vw, 16px);
+  padding-inline-start: clamp(8px, 2vw, 12px);
+  border-inline-start: 2px solid #a9bce9;
+  min-width: 0;
+}
+
+.tf-task-comments .tf-comment-branch > form { margin-top: 0; }
+.tf-task-comments .tf-comment-replies[hidden] { display: none; }
+.tf-task-comments .tf-comment-replies > li {
+  position: relative;
+  background: #fff;
+}
+
+.tf-comment-replies > li::before {
+  content: '';
+  position: absolute;
+  inset-block-start: 16px;
+  inset-inline-end: 100%;
+  inline-size: clamp(8px, 2vw, 12px);
+  border-block-start: 2px solid #a9bce9;
+}
+
+.tf-comment-reply-label {
+  display: inline-block;
+  margin-inline-end: 6px;
+  padding-inline: 5px;
+  border-radius: 4px;
+  background: #eaf0fb;
+  color: var(--tf-blue);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
 
 .tf-task-checklist li {
   display: flex;
