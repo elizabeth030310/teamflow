@@ -14,6 +14,7 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -252,6 +253,44 @@ public class AuthController {
         return Map.of(
                 "message", "로그아웃되었습니다."
         );
+    }
+
+    public record ChangePasswordRequest(
+            @NotBlank String currentPassword,
+            @NotBlank String newPassword
+    ) {
+    }
+
+    @PostMapping(value = "/change-password", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public Map<String, String> changePassword(
+            @Valid @RequestBody ChangePasswordRequest request, HttpServletRequest httpRequest) {
+        HttpSession session = httpRequest.getSession(false);
+        if (session == null || !(session.getAttribute("userId") instanceof Long userId)) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "로그인이 필요합니다.");
+        }
+
+        String newPassword = request.newPassword();
+        if (newPassword.codePointCount(0, newPassword.length()) < 8 || exceedsPasswordByteLimit(newPassword)) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "새 비밀번호는 8자 이상, UTF-8 기준 72바이트 이하여야 합니다.");
+        }
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.UNAUTHORIZED, "유효하지 않은 로그인 정보입니다."));
+        String previousHash = user.getPassword();
+        if (exceedsPasswordByteLimit(request.currentPassword())
+                || !passwordEncoder.matches(request.currentPassword(), previousHash)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "현재 비밀번호가 올바르지 않습니다.");
+        }
+
+        if (userRepository.updatePassword(userId, previousHash, passwordEncoder.encode(newPassword)) == 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "비밀번호가 변경되었습니다. 다시 로그인해 주세요.");
+        }
+
+        session.invalidate();
+        SecurityContextHolder.clearContext();
+        return Map.of("message", "비밀번호가 변경되었습니다. 다시 로그인해 주세요.");
     }
 
     private static boolean exceedsPasswordByteLimit(String password) {

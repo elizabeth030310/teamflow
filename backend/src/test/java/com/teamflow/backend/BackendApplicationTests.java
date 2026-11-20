@@ -95,6 +95,79 @@ class BackendApplicationTests {
 	}
 
 	@Test
+	void changingPasswordRequiresLogin() throws Exception {
+		mvc().perform(post("/api/auth/change-password").contentType(MediaType.APPLICATION_JSON)
+				.content(passwordChange("old-password", "new-password")))
+				.andExpect(status().isUnauthorized());
+	}
+
+	@Test
+	void changingPasswordUpdatesOnlyThePasswordAndEndsTheSession() throws Exception {
+		MockMvc mvc = mvc();
+		String email = newEmail();
+		String currentPassword = "old-password";
+		String newPassword = "\uAC00".repeat(24);
+		User account = users.save(new User("Existing", email, passwords.encode(currentPassword)));
+		MockHttpSession session = (MockHttpSession) login(mvc, email, currentPassword)
+				.andExpect(status().isOk()).andReturn().getRequest().getSession(false);
+
+		mvc.perform(post("/api/auth/change-password").session(session).contentType(MediaType.APPLICATION_JSON)
+				.content(passwordChange(currentPassword, newPassword)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.message").exists());
+
+		assertThat(session.isInvalid()).isTrue();
+		User updated = users.findById(account.getId()).orElseThrow();
+		assertThat(updated.getName()).isEqualTo(account.getName());
+		assertThat(updated.getEmail()).isEqualTo(email);
+		assertThat(passwords.matches(newPassword, updated.getPassword())).isTrue();
+		login(mvc, email, currentPassword).andExpect(status().isUnauthorized());
+		MockHttpSession newSession = (MockHttpSession) login(mvc, email, newPassword)
+				.andExpect(status().isOk()).andReturn().getRequest().getSession(false);
+		mvc.perform(get("/api/projects").session(newSession)).andExpect(status().isOk());
+	}
+
+	@Test
+	void rejectedPasswordChangesKeepThePasswordAndSession() throws Exception {
+		MockMvc mvc = mvc();
+		String email = newEmail();
+		String currentPassword = "old-password";
+		User account = users.save(new User("Existing", email, passwords.encode(currentPassword)));
+		MockHttpSession session = (MockHttpSession) login(mvc, email, currentPassword)
+				.andExpect(status().isOk()).andReturn().getRequest().getSession(false);
+
+		for (String invalidBody : List.of(
+				passwordChange("wrong-password", "new-password"),
+				passwordChange("\uAC00".repeat(25), "new-password"),
+				passwordChange(currentPassword, "short"),
+				passwordChange(currentPassword, "\uD83D\uDE00".repeat(7)),
+				passwordChange(currentPassword, "\uAC00".repeat(24) + "a"),
+				passwordChange(currentPassword, " ".repeat(8)),
+				"{\"newPassword\":\"new-password\"}",
+				"{")) {
+			mvc.perform(post("/api/auth/change-password").session(session).contentType(MediaType.APPLICATION_JSON)
+					.content(invalidBody)).andExpect(status().isBadRequest());
+		}
+
+		assertThat(passwords.matches(currentPassword,
+				users.findById(account.getId()).orElseThrow().getPassword())).isTrue();
+		mvc.perform(get("/api/auth/me").session(session)).andExpect(status().isOk());
+	}
+
+	private static String passwordChange(String currentPassword, String newPassword) {
+		return """
+				{"currentPassword":"%s","newPassword":"%s"}
+				""".formatted(currentPassword, newPassword);
+	}
+
+	private static ResultActions login(MockMvc mvc, String email, String password) throws Exception {
+		return mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
+				.content("""
+						{"email":"%s","password":"%s"}
+						""".formatted(email, password)));
+	}
+
+	@Test
 	void resendCooldownExpiryAndAttemptLimitInvalidateCodes() throws Exception {
 		MockMvc mvc = mvc();
 		String email = newEmail();
