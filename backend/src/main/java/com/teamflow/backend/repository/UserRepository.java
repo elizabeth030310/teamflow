@@ -18,6 +18,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
     // 이메일 중복 여부 확인
     boolean existsByEmail(String email);
 
+    boolean existsByIdAndRole(Long id, User.Role role);
+
     @Transactional
     @Modifying
     @Query("""

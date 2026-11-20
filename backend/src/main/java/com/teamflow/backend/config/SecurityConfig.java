@@ -1,13 +1,19 @@
 
 package com.teamflow.backend.config;
 
+import com.teamflow.backend.entity.User;
+import com.teamflow.backend.repository.UserRepository;
 import jakarta.servlet.DispatcherType;
+import jakarta.servlet.http.HttpSession;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 
+import org.springframework.security.authorization.AuthenticatedAuthorizationManager;
+import org.springframework.security.authorization.AuthorizationDecision;
+import org.springframework.security.authorization.AuthorizationManagers;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -18,7 +24,7 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain securityFilterChain(
-            HttpSecurity http) throws Exception {
+            HttpSecurity http, UserRepository users) throws Exception {
 
         http
                 // 개발 중 임시 설정
@@ -27,6 +33,19 @@ public class SecurityConfig {
 
                 .authorizeHttpRequests(auth -> auth
 
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+
+                        .requestMatchers("/api/admin", "/api/admin/**")
+                        .access(AuthorizationManagers.allOf(
+                                AuthenticatedAuthorizationManager.authenticated(),
+                                (authentication, context) -> {
+                                    HttpSession session = context.getRequest().getSession(false);
+                                    return new AuthorizationDecision(session != null
+                                            && session.getAttribute("userId") instanceof Long userId
+                                            && users.existsByIdAndRole(userId, User.Role.ADMIN));
+                                }
+                        ))
+
                         // 오류 응답 처리 허용
                         .dispatcherTypeMatchers(
                                 DispatcherType.ERROR,
@@ -34,12 +53,6 @@ public class SecurityConfig {
                         ).permitAll()
 
                         .requestMatchers("/error").permitAll()
-
-                        // 브라우저 사전 요청 허용
-                        .requestMatchers(
-                                HttpMethod.OPTIONS,
-                                "/**"
-                        ).permitAll()
 
                         // 회원가입, 로그인, 로그아웃은 누구나 요청 가능
                         .requestMatchers(

@@ -16,7 +16,7 @@ import java.lang.annotation.Target;
         "spring.jpa.hibernate.ddl-auto=update",
         "spring.jpa.defer-datasource-initialization=true",
         "spring.sql.init.mode=always",
-        "spring.sql.init.schema-locations=file:db/187-2-notifications.sql,file:db/189-a3-signup-verification.sql,file:db/191-a-task-comment-replies.sql,file:db/191-c-comment-reply-notifications.sql",
+        "spring.sql.init.schema-locations=file:db/187-2-notifications.sql,file:db/189-a3-signup-verification.sql,file:db/191-a-task-comment-replies.sql,file:db/191-c-comment-reply-notifications.sql,file:db/192-a-8-user-role.sql",
         "teamflow.attachments.storage-root=",
         "teamflow.signup.hmac-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
         "spring.mail.host=",

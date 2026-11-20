@@ -5,10 +5,12 @@ import com.teamflow.backend.repository.UserRepository;
 import com.teamflow.backend.service.SignupCodeMailer;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -27,6 +29,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import javax.sql.DataSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -46,12 +49,71 @@ class BackendApplicationTests {
 	@Autowired
 	private WebApplicationContext context;
 	@Autowired private JdbcTemplate jdbc;
+	@Autowired private DataSource dataSource;
 	@Autowired private UserRepository users;
 	@Autowired private PasswordEncoder passwords;
 	@MockitoBean private SignupCodeMailer mailer;
 
 	@Test
 	void contextLoads() {
+	}
+
+	@Test
+	void adminSummaryUsesTheCurrentDatabaseRole() throws Exception {
+		MockMvc mvc = mvc();
+		String email = newEmail();
+		String password = "example-password";
+		User account = users.save(new User("Account", email, passwords.encode(password)));
+		String summary = "/api/admin/summary";
+
+		mvc.perform(get(summary)).andExpect(status().isUnauthorized());
+		MockHttpSession userSession = (MockHttpSession) login(mvc, email, password)
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.role").value("USER"))
+				.andReturn().getRequest().getSession(false);
+		mvc.perform(get(summary).session(userSession)).andExpect(status().isForbidden());
+
+		jdbc.update("UPDATE users SET role = 'ADMIN' WHERE id = ?", account.getId());
+		new ResourceDatabasePopulator(new FileSystemResource("db/192-a-8-user-role.sql")).execute(dataSource);
+		MockHttpSession adminSession = (MockHttpSession) login(mvc, email, password)
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.role").value("ADMIN"))
+				.andExpect(jsonPath("$.password").doesNotHaveJsonPath())
+				.andReturn().getRequest().getSession(false);
+		mvc.perform(get("/api/auth/me").session(adminSession))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.role").value("ADMIN"));
+		mvc.perform(get(summary).session(adminSession))
+				.andExpect(status().isOk())
+				.andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+				.andExpect(jsonPath("$.userCount").value(users.count()))
+				.andExpect(jsonPath("$.email").doesNotHaveJsonPath())
+				.andExpect(jsonPath("$.password").doesNotHaveJsonPath());
+
+		jdbc.update("UPDATE users SET role = 'USER' WHERE id = ?", account.getId());
+		mvc.perform(get(summary).session(adminSession)).andExpect(status().isForbidden());
+	}
+
+	@Test
+	void signupAndLoginIgnoreRoleSuppliedInRequestBodies() throws Exception {
+		MockMvc mvc = mvc();
+		String email = newEmail();
+		String password = "example-password";
+		requestCode(mvc, email).andExpect(status().isAccepted());
+		mvc.perform(post("/api/auth/signup").contentType(MediaType.APPLICATION_JSON).content("""
+				{"name":"Account","email":"%s","password":"%s","code":"%s","role":"ADMIN"}
+				""".formatted(email, password, deliveredCode(email, 1))))
+				.andExpect(status().isCreated());
+		assertThat(users.findByEmail(email).orElseThrow().getRole()).isEqualTo(User.Role.USER);
+
+		MockHttpSession session = (MockHttpSession) mvc.perform(post("/api/auth/login")
+				.contentType(MediaType.APPLICATION_JSON).content("""
+						{"email":"%s","password":"%s","role":"ADMIN"}
+						""".formatted(email, password)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.role").value("USER"))
+				.andReturn().getRequest().getSession(false);
+		mvc.perform(get("/api/admin/summary").session(session)).andExpect(status().isForbidden());
 	}
 
 	@Test

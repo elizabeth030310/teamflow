@@ -3,6 +3,8 @@ package com.teamflow.backend.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -13,6 +15,11 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "users")
 public class User {
+
+    public enum Role {
+        USER,
+        ADMIN
+    }
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -29,6 +36,10 @@ public class User {
     // 암호화된 비밀번호 저장
     @Column(nullable = false)
     private String password;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, updatable = false, length = 20)
+    private Role role = Role.USER;
 
     // 가입 날짜
     @Column(nullable = false, updatable = false)
@@ -83,5 +94,9 @@ public class User {
 
     public LocalDateTime getCreatedAt() {
         return createdAt;
+    }
+
+    public Role getRole() {
+        return role;
     }
 }

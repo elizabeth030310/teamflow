@@ -202,6 +202,7 @@ public class AuthController {
                 "id", user.getId(),
                 "name", user.getName(),
                 "email", user.getEmail(),
+                "role", user.getRole().name(),
                 "message", "로그인에 성공했습니다."
         );
     }
@@ -233,7 +234,8 @@ public class AuthController {
         return Map.of(
                 "id", user.getId(),
                 "name", user.getName(),
-                "email", user.getEmail()
+                "email", user.getEmail(),
+                "role", user.getRole().name()
         );
     }
 
