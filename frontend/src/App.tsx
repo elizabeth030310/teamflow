@@ -7,6 +7,7 @@ import { getProjectStreamLimit, loadProjectTasks, startProjectTaskSync } from '.
 import type { Task } from './projectTaskSync'
 import ProjectActivities from './ProjectActivities'
 import TaskComments from './TaskComments'
+import type { CommentFocusTarget } from './taskCommentThreads'
 import TaskChecklist from './TaskChecklist'
 import TaskAttachments from './TaskAttachments'
 import TaskCalendar from './TaskCalendar'
@@ -43,7 +44,11 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
   const [syncErrors, setSyncErrors] = useState(new Set<number>())
   const [memberRefreshes, setMemberRefreshes] = useState(new Map<number, number>())
   const [activityRefreshes, setActivityRefreshes] = useState(new Map<number, number>())
-  const [openComments, setOpenComments] = useState<{ taskId: number; revision: number } | null>(null)
+  const [openComments, setOpenComments] = useState<{
+    taskId: number
+    revision: number
+    focusTarget?: CommentFocusTarget
+  } | null>(null)
   const [openChecklist, setOpenChecklist] = useState<{ taskId: number; revision: number } | null>(null)
   const [openAttachments, setOpenAttachments] = useState<{ taskId: number; revision: number } | null>(null)
   const [projectSearch, setProjectSearch] = useState('')
@@ -147,7 +152,15 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
       filters.delete(project.id)
       return filters
     })
-    if (item.kind === 'COMMENT') setOpenComments({ taskId: item.taskId, revision: 0 })
+    if (item.kind === 'COMMENT' || item.kind === 'COMMENT_REPLY') {
+      setOpenComments({
+        taskId: item.taskId,
+        revision: 0,
+        focusTarget: item.kind === 'COMMENT_REPLY' && item.parentCommentId != null
+          ? { parentCommentId: item.parentCommentId, replyCommentId: item.replyCommentId ?? null }
+          : undefined,
+      })
+    }
     const href = projectHref(project.id, item.taskId)
     if (window.location.hash === href) focusTask(item.taskId)
     else window.location.hash = href
@@ -281,7 +294,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
         },
         onCommentChange: (taskId) => {
           setOpenComments((previous) => previous?.taskId === taskId
-            ? { taskId, revision: previous.revision + 1 }
+            ? { ...previous, revision: previous.revision + 1 }
             : previous)
         },
         onChecklistChange: (taskId) => {
@@ -1186,6 +1199,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
                 taskId={task.id}
                 userId={userId}
                 revision={commentPanel.revision}
+                focusTarget={commentPanel.focusTarget}
                 connectionRevision={memberRefreshes.get(task.projectId) ?? 0}
                 onSessionExpired={onSessionExpired}
               />

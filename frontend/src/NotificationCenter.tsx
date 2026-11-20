@@ -5,6 +5,7 @@ import type { NotificationInbox, NotificationItem } from './notificationSync'
 const labels = {
   ASSIGNMENT: '작업 배정',
   COMMENT: '새 댓글',
+  COMMENT_REPLY: '내 댓글에 답글',
   DUE_SOON: '마감 임박',
   OVERDUE: '마감 지남',
 }
@@ -126,7 +127,9 @@ export default function NotificationCenter({ onOpenTask, onSessionExpired }: {
               <li key={item.id} data-unread={!item.read}>
                 <button type="button" className="tf-notification-target" disabled={busy}
                   onClick={() => void markRead(item, true)}>
-                  <span>{labels[item.kind]}{item.dueDate && ` · ${item.dueDate}`}</span>
+                  <span>{item.kind === 'COMMENT_REPLY' && item.actorName
+                    ? `${item.actorName}님이 내 댓글에 답글을 남겼습니다.`
+                    : labels[item.kind]}{item.dueDate && ` · ${item.dueDate}`}</span>
                   <strong>{item.taskTitle}</strong>
                   <time dateTime={item.createdAt}>{timestamp.format(new Date(item.createdAt))}</time>
                 </button>

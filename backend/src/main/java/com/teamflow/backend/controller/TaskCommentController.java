@@ -70,8 +70,9 @@ public class TaskCommentController {
         var target = access.lockAccessibleTask(taskId, userId);
         String content = requireContent(request);
         Long parentCommentId = readParentCommentId(request);
+        TaskComment parent = null;
         if (parentCommentId != null) {
-            TaskComment parent = requireActiveComment(taskId, parentCommentId);
+            parent = requireActiveComment(taskId, parentCommentId);
             if (parent.getParentCommentId() != null) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "대댓글에는 답글을 달 수 없습니다.");
             }
@@ -81,7 +82,12 @@ public class TaskCommentController {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "로그인이 필요합니다."));
         TaskComment saved = comments.save(new TaskComment(target.task(), author, content, parentCommentId));
         activities.record(TaskActivity.commentCreated(target.project(), target.task(), author));
-        notifications.commented(taskId, userId);
+        if (parent == null) {
+            notifications.commented(taskId, userId);
+        } else {
+            notifications.replied(taskId, parent.getAuthor().getId(), userId, author.getName(),
+                    parent.getId(), saved.getId());
+        }
         events.publishEvent(new CommentChange(target.project().getId(), taskId));
         return CommentResponse.from(saved);
     }

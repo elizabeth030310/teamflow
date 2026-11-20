@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { groupTaskComments, isTaskComment, parseTaskComments } from '../src/taskCommentThreads.ts'
+import { findCommentFocus, groupTaskComments, isTaskComment, parseTaskComments } from '../src/taskCommentThreads.ts'
 
 function comment(id, parentCommentId = null, deleted = false) {
   return { id, authorId: 1, authorName: '작성자', content: deleted ? '' : '내용',
@@ -25,4 +25,13 @@ test('API replies with missing or invalid parent IDs are not treated as root com
   assert.equal(parseTaskComments([comment(1), comment(2, '1')]), null)
   assert.equal(parseTaskComments([comment(1), comment(2, 99)]), null)
   assert.equal(parseTaskComments([comment(1), comment(2, 1), comment(3, 2)]), null)
+})
+
+test('notification focus prefers its reply and falls back when comments have been deleted', () => {
+  const target = { parentCommentId: 1, replyCommentId: 3 }
+  assert.equal(findCommentFocus([comment(1, null, true), comment(3, 1)], target), 3)
+  assert.equal(findCommentFocus([comment(1), comment(3, 1, true)], target), 1)
+  assert.equal(findCommentFocus([comment(1), comment(2), comment(3, 2)], target), 1)
+  assert.equal(findCommentFocus([comment(1, null, true)], target), 1)
+  assert.equal(findCommentFocus([], target), undefined)
 })

@@ -3,7 +3,10 @@ export type NotificationItem = {
   projectId: number
   taskId: number
   taskTitle: string
-  kind: 'ASSIGNMENT' | 'COMMENT' | 'DUE_SOON' | 'OVERDUE'
+  kind: 'ASSIGNMENT' | 'COMMENT' | 'COMMENT_REPLY' | 'DUE_SOON' | 'OVERDUE'
+  actorName?: string | null
+  parentCommentId?: number | null
+  replyCommentId?: number | null
   dueDate: string | null
   createdAt: string
   read: boolean

@@ -102,6 +102,59 @@ class ProjectCollaborationTests {
     }
 
     @Test
+    void replyNotifiesOnlyTheParentAuthorWhileTheyHaveProjectAccess() throws Exception {
+        long membershipId = invite(invitee);
+        respond(invitee, membershipId, "accept").andExpect(status().isOk());
+        respond(outsider, invite(outsider), "accept").andExpect(status().isOk());
+        long taskId = createTask(session(owner));
+        changeAssignee(owner, taskId, assigneeBody(invitee.getId())).andExpect(status().isOk());
+        postTaskComment(invitee, taskId, """
+                {"content":"Parent"}
+                """).andExpect(status().isCreated());
+        Long parentId = comments.findByTaskIdOrderByCreatedAtAscIdAsc(taskId).getFirst().getId();
+        String replyBody = """
+                {"content":"Reply","parentCommentId":%d}
+                """.formatted(parentId);
+
+        postTaskComment(invitee, taskId, replyBody).andExpect(status().isCreated());
+        postTaskComment(outsider, taskId, replyBody).andExpect(status().isCreated());
+        Long replyId = comments.findByTaskIdOrderByCreatedAtAscIdAsc(taskId).getLast().getId();
+        inbox(owner).andExpect(jsonPath("$.unreadCount").value(1))
+                .andExpect(jsonPath("$.items[0].kind").value("COMMENT"));
+        inbox(outsider).andExpect(jsonPath("$.items").isEmpty());
+        inbox(invitee).andExpect(jsonPath("$.unreadCount").value(2))
+                .andExpect(jsonPath("$.items[0].kind").value("COMMENT_REPLY"))
+                .andExpect(jsonPath("$.items[0].projectId").value(project.getId()))
+                .andExpect(jsonPath("$.items[0].taskId").value(taskId))
+                .andExpect(jsonPath("$.items[0].actorName").value(outsider.getName()))
+                .andExpect(jsonPath("$.items[0].parentCommentId").value(parentId))
+                .andExpect(jsonPath("$.items[0].replyCommentId").value(replyId));
+
+        long notificationId = jdbc.queryForObject("select id from notifications where task_id = ? and kind = 'COMMENT_REPLY'",
+                Long.class, taskId);
+        mvc.perform(patch("/api/notifications/{id}/read", notificationId)
+                        .with(user(owner.getEmail())).session(session(owner)))
+                .andExpect(status().isNotFound());
+        mvc.perform(patch("/api/notifications/{id}/read", notificationId)
+                        .with(user(invitee.getEmail())).session(session(invitee)))
+                .andExpect(status().isNoContent());
+        mvc.perform(delete("/api/tasks/{taskId}/comments/{id}", taskId, replyId)
+                        .with(user(outsider.getEmail())).session(session(outsider)))
+                .andExpect(status().isNoContent());
+        inbox(invitee).andExpect(jsonPath("$.items[0].read").value(true));
+
+        members.deleteById(membershipId);
+        members.flush();
+        postTaskComment(owner, taskId, replyBody).andExpect(status().isCreated());
+        inbox(invitee).andExpect(jsonPath("$.items").isEmpty());
+        mvc.perform(patch("/api/notifications/{id}/read", notificationId)
+                        .with(user(invitee.getEmail())).session(session(invitee)))
+                .andExpect(status().isNotFound());
+        assertThat(jdbc.queryForObject("select count(*) from notifications where task_id = ? and kind = 'COMMENT_REPLY'",
+                Long.class, taskId)).isEqualTo(1L);
+    }
+
+    @Test
     void deadlineNotificationsDeduplicatePerStageAndDueDate() throws Exception {
         LocalDate today = LocalDate.of(2028, 2, 27);
         Task active = tasks.save(new Task(project.getId(), "Active", "", "TODO", "MEDIUM", today.plusDays(3)));
@@ -396,7 +449,9 @@ class ProjectCollaborationTests {
 
     private Long invite(User invitee) throws Exception {
         sendInvite(invitee).andExpect(status().isCreated()).andExpect(jsonPath("$.status").value("PENDING"));
-        return members.findByProjectIdOrderById(project.getId()).getFirst().getId();
+        return members.findByProjectIdOrderById(project.getId()).stream()
+                .filter(member -> member.getUser().getId().equals(invitee.getId()))
+                .findFirst().orElseThrow().getId();
     }
 
     @Test

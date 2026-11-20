@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { groupTaskComments, isTaskComment, parseTaskComments } from './taskCommentThreads'
-import type { TaskComment } from './taskCommentThreads'
+import { findCommentFocus, groupTaskComments, isTaskComment, parseTaskComments } from './taskCommentThreads'
+import type { CommentFocusTarget, TaskComment } from './taskCommentThreads'
 
 type InlineDraft = { mode: 'reply' | 'edit'; commentId: number; content: string }
 type CommentAction =
@@ -138,10 +138,11 @@ function CommentRow({ comment, taskId, userId, inlineDraft, activeAction, openIn
   )
 }
 
-export default function TaskComments({ taskId, userId, revision, connectionRevision, onSessionExpired }: {
+export default function TaskComments({ taskId, userId, revision, focusTarget, connectionRevision, onSessionExpired }: {
   taskId: number
   userId: number
   revision: number
+  focusTarget?: CommentFocusTarget
   connectionRevision: number
   onSessionExpired: () => void
 }) {
@@ -154,6 +155,8 @@ export default function TaskComments({ taskId, userId, revision, connectionRevis
   const [activeAction, setActiveAction] = useState<CommentAction | null>(null)
   const [localRevision, setLocalRevision] = useState(0)
   const mutation = useRef<AbortController | null>(null)
+  const handledFocus = useRef<CommentFocusTarget | undefined>(undefined)
+  const [readyFocus, setReadyFocus] = useState<CommentFocusTarget>()
   const endpoint = `/api/tasks/${taskId}/comments`
   const busy = activeAction !== null
   const { parents, repliesByParent } = groupTaskComments(comments ?? [])
@@ -210,6 +213,10 @@ export default function TaskComments({ taskId, userId, revision, connectionRevis
         }
         setComments(list)
         setLoadError('')
+        if (focusTarget && handledFocus.current !== focusTarget) {
+          setThreadCollapsed(focusTarget.parentCommentId, false)
+          setReadyFocus(focusTarget)
+        }
       } catch {
         if (!controller.signal.aborted) setLoadError('댓글을 불러오지 못했습니다.')
       }
@@ -217,7 +224,19 @@ export default function TaskComments({ taskId, userId, revision, connectionRevis
 
     void loadComments()
     return () => controller.abort()
-  }, [endpoint, revision, connectionRevision, localRevision, onSessionExpired])
+  }, [endpoint, revision, focusTarget, connectionRevision, localRevision, onSessionExpired])
+
+  useEffect(() => {
+    if (!comments || !focusTarget || readyFocus !== focusTarget || handledFocus.current === focusTarget) return
+    const commentId = findCommentFocus(comments, focusTarget)
+    const target = document.getElementById(commentId === undefined
+      ? `task-comments-${taskId}`
+      : `task-comment-${taskId}-${commentId}`)
+    if (!target) return
+    handledFocus.current = focusTarget
+    target.focus({ preventScroll: true })
+    target.scrollIntoView({ block: 'center', inline: 'nearest' })
+  }, [comments, focusTarget, readyFocus, taskId])
 
   async function saveComment(action: CommentAction) {
     if (mutation.current || comments === null) return
@@ -287,7 +306,8 @@ export default function TaskComments({ taskId, userId, revision, connectionRevis
     },
   }
   return (
-    <section className="tf-task-comments" id={`task-comments-${taskId}`} aria-labelledby={`comments-title-${taskId}`}>
+    <section className="tf-task-comments" id={`task-comments-${taskId}`} tabIndex={-1}
+      aria-labelledby={`comments-title-${taskId}`}>
       <h5 id={`comments-title-${taskId}`}>댓글</h5>
       {loadError && (
         <p className="tf-error" role="alert">
@@ -312,7 +332,7 @@ export default function TaskComments({ taskId, userId, revision, connectionRevis
             const repliesId = `comment-replies-${taskId}-${comment.id}`
 
             return (
-              <li key={comment.id}>
+              <li key={comment.id} id={`task-comment-${taskId}-${comment.id}`} tabIndex={-1}>
                 <CommentRow comment={comment} {...rowProps} />
                 {replies.length > 0 && (
                   <>
@@ -327,7 +347,11 @@ export default function TaskComments({ taskId, userId, revision, connectionRevis
                       답글 {replies.length}개 {expanded ? '접기' : '펼치기'}
                     </button>
                     <ul className="tf-comment-branch tf-comment-replies" id={repliesId} hidden={!expanded}>
-                      {replies.map((reply) => <li key={reply.id}><CommentRow comment={reply} {...rowProps} /></li>)}
+                      {replies.map((reply) => (
+                        <li key={reply.id} id={`task-comment-${taskId}-${reply.id}`} tabIndex={-1}>
+                          <CommentRow comment={reply} {...rowProps} />
+                        </li>
+                      ))}
                     </ul>
                   </>
                 )}

@@ -743,6 +743,11 @@ html:has(.tf-account) {
 
 .tf-task-comments li form { margin-top: 8px; }
 .tf-task-comments .tf-comment-deleted { color: var(--tf-muted); }
+.tf-task-comments:focus,
+.tf-task-comments li[tabindex="-1"]:focus {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
+}
 .tf-task-comments .tf-comment-toggle { margin-top: 8px; }
 
 .tf-task-comments .tf-comment-branch {

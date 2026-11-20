@@ -42,7 +42,8 @@ public class NotificationService {
     public record Changed(Long userId) {}
 
     public record Item(long id, long projectId, long taskId, String taskTitle, String kind,
-                       LocalDate dueDate, Instant createdAt, boolean read) {}
+                       LocalDate dueDate, Instant createdAt, boolean read,
+                       String actorName, Long parentCommentId, Long replyCommentId) {}
 
     public record Inbox(List<Item> items, long unreadCount, boolean hasMore) {}
 
@@ -52,12 +53,15 @@ public class NotificationService {
                 Long.class, userId);
         List<Item> items = jdbc.query("""
                 SELECT notifications.id, tasks.project_id, tasks.id AS task_id, tasks.title,
-                       kind, notifications.due_date, notifications.created_at, read_at IS NOT NULL AS is_read
+                       kind, notifications.due_date, notifications.created_at, read_at IS NOT NULL AS is_read,
+                       actor_name, parent_comment_id, reply_comment_id
                 """ + VISIBLE + " ORDER BY notifications.id DESC LIMIT ? OFFSET ?",
                 (row, index) -> new Item(row.getLong("id"), row.getLong("project_id"),
                         row.getLong("task_id"), row.getString("title"), row.getString("kind"),
                         row.getObject("due_date", LocalDate.class), row.getTimestamp("created_at").toInstant(),
-                        row.getBoolean("is_read")), userId, PAGE_SIZE + 1, (long) page * PAGE_SIZE);
+                        row.getBoolean("is_read"), row.getString("actor_name"),
+                        row.getObject("parent_comment_id", Long.class), row.getObject("reply_comment_id", Long.class)),
+                userId, PAGE_SIZE + 1, (long) page * PAGE_SIZE);
         return new Inbox(items.stream().limit(PAGE_SIZE).toList(), unread, items.size() > PAGE_SIZE);
     }
 
@@ -81,6 +85,21 @@ public class NotificationService {
                 ) recipient
                 WHERE tasks.id = ? AND recipient.user_id <> ? AND
                 """ + CAN_ACCESS + " RETURNING recipient_id", Long.class, taskId, actorId));
+    }
+
+    public void replied(Long taskId, Long parentAuthorId, Long actorId, String actorName,
+                        Long parentCommentId, Long replyCommentId) {
+        if (Objects.equals(parentAuthorId, actorId)) {
+            return;
+        }
+        publishChanges(jdbc.queryForList("""
+                INSERT INTO notifications (recipient_id, task_id, kind, actor_name, parent_comment_id, reply_comment_id)
+                SELECT recipient.user_id, tasks.id, 'COMMENT_REPLY', ?, ?, ?
+                FROM tasks JOIN projects ON projects.id = tasks.project_id
+                CROSS JOIN LATERAL (SELECT CAST(? AS BIGINT) AS user_id) recipient
+                WHERE tasks.id = ? AND
+                """ + CAN_ACCESS + " RETURNING recipient_id", Long.class,
+                actorName, parentCommentId, replyCommentId, parentAuthorId, taskId));
     }
 
     @Scheduled(initialDelay = 10000, fixedDelay = 60000)

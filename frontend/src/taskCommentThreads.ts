@@ -8,6 +8,19 @@ export type TaskComment = {
   deleted: boolean
 }
 
+export type CommentFocusTarget = {
+  parentCommentId: number
+  replyCommentId: number | null
+}
+
+export function findCommentFocus(comments: TaskComment[], target: CommentFocusTarget) {
+  const reply = comments.find((comment) => comment.id === target.replyCommentId
+    && comment.parentCommentId === target.parentCommentId && !comment.deleted)
+  if (reply) return reply.id
+  return comments.find((comment) => comment.id === target.parentCommentId
+    && comment.parentCommentId === null)?.id
+}
+
 function isId(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
 }
