@@ -200,10 +200,11 @@ export function InvitationInbox({ workspaceReady, onAccept }: {
   )
 }
 
-export function ProjectCollaboration({ projectId, userId, refreshKey, renderHeader, children }: {
+export function ProjectCollaboration({ projectId, userId, refreshKey, showMembers, renderHeader, children }: {
   projectId: number
   userId: number
   refreshKey: string
+  showMembers: boolean
   renderHeader: (isOwner: boolean) => ReactNode
   children: (members: ListState<Member>) => ReactNode
 }) {
@@ -214,7 +215,7 @@ export function ProjectCollaboration({ projectId, userId, refreshKey, renderHead
   return (
     <>
       {renderHeader(isOwner)}
-      <section className="tf-collaboration" aria-labelledby={`members-${projectId}`}>
+      <section className="tf-collaboration" aria-labelledby={`members-${projectId}`} hidden={!showMembers}>
         <h4 id={`members-${projectId}`}>프로젝트 멤버</h4>
         <ListFeedback state={members.state} loading="프로젝트 멤버를 불러오는 중입니다." reload={members.reload} />
         {members.state.status === 'ready' && (

@@ -17,7 +17,7 @@ import type { NotificationItem } from './notificationSync'
 import { columns, getPriority, priorities } from './projectTaskStats'
 import { createSearchMatcher } from './search'
 import { dueDateAlerts, getDueDateAlert, getLocalCalendarDay, showDatePicker } from './taskDates'
-import { dashboardHref, myTasksHref, projectHref, readWorkspaceRoute } from './workspaceRoute'
+import { dashboardHref, myTasksHref, projectHref, projectTabHref, projectTabs, readWorkspaceRoute } from './workspaceRoute'
 import './TeamFlow.css'
 
 type Project = {
@@ -37,6 +37,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
   const route = readWorkspaceRoute(workspaceHash)
   const isDashboard = route.page === 'dashboard'
   const isMyTasks = route.page === 'my-tasks'
+  const projectTab = route.page === 'project' ? route.tab : null
   const selectedProject = projects.find(({ id }) => id === route.projectId)
   const liveTasks = useRef(new Map<number, ReturnType<typeof startProjectTaskSync>>())
   const [syncErrors, setSyncErrors] = useState(new Set<number>())
@@ -120,7 +121,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
   useEffect(() => {
     if (visibleRoutedTaskId !== undefined) focusTask(visibleRoutedTaskId)
     else window.scrollTo(0, 0)
-  }, [workspaceHash, visibleRoutedTaskId])
+  }, [route.page, route.projectId, route.taskId, visibleRoutedTaskId])
 
   const openNotificationTask = async (item: NotificationItem) => {
     const response = await fetch(`/api/projects/${item.projectId}`, {
@@ -1270,6 +1271,18 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
   const assignedIds = [...new Set(allProjectTasks.flatMap((task) =>
     task.assigneeId == null ? [] : [task.assigneeId]
   ))].sort()
+  const calendar = (
+    <TaskCalendar
+      today={today}
+      tasks={filteredTasks}
+      projectNames={visibleProjectNames}
+      alertsByTaskId={alertsByTaskId}
+      status={dashboardStatus}
+      onTaskClick={(task) => {
+        if (visibleRoutedTaskId === task.id) focusTask(task.id)
+      }}
+    />
+  )
 
   return (
     <div className="tf-app tf-workspace">
@@ -1555,16 +1568,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
 
       {error && <p className="tf-error" role="alert">{error}</p>}
 
-      {(isDashboard || selectedProject || (isMyTasks && dashboardStatus === 'ready')) && <TaskCalendar
-        today={today}
-        tasks={filteredTasks}
-        projectNames={visibleProjectNames}
-        alertsByTaskId={alertsByTaskId}
-        status={dashboardStatus}
-        onTaskClick={(task) => {
-          if (visibleRoutedTaskId === task.id) focusTask(task.id)
-        }}
-      />}
+      {(isDashboard || (isMyTasks && dashboardStatus === 'ready')) && calendar}
 
       {route.page === 'project' && !selectedProject && dashboardStatus === 'ready' && (
         <section className="tf-panel">
@@ -1586,6 +1590,7 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
                 projectId={project.id}
                 userId={userId}
                 refreshKey={`${memberRefreshes.get(project.id) ?? 0}:${assignedIds.join(',')}`}
+                showMembers={projectTab === 'members'}
                 renderHeader={(isOwner) => (
                   <>
                     {isOwner && editingId === project.id ? (
@@ -1664,6 +1669,14 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
                         )}
                       </>
                     )}
+                    <nav className="tf-project-tabs" aria-label="프로젝트 보기">
+                      {projectTabs.map(({ id, label }) => (
+                        <a key={id} href={projectTabHref(project.id, id)}
+                          aria-current={projectTab === id ? 'page' : undefined}>
+                          {label}
+                        </a>
+                      ))}
+                    </nav>
                   </>
                 )}
               >
@@ -1677,20 +1690,23 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
 
                   return (
                     <>
-                      {dashboardStatus === 'ready' && (
-                        <ProjectStats project={project} tasks={allProjectTasks} members={members} today={today} />
-                      )}
-
-                      <ProjectActivities
-                        projectId={project.id}
-                        refreshKey={activityRefreshes.get(project.id) ?? 0}
-                        members={members}
-                        statusLabels={statusLabels}
-                        onSessionExpired={onSessionExpired}
-                      />
+                      <div hidden={projectTab !== 'calendar'}>{calendar}</div>
+                      <div hidden={projectTab !== 'stats'}>
+                        {dashboardStatus === 'ready' && (
+                          <ProjectStats project={project} tasks={allProjectTasks} members={members} today={today} />
+                        )}
+                        <ProjectActivities
+                          projectId={project.id}
+                          refreshKey={activityRefreshes.get(project.id) ?? 0}
+                          members={members}
+                          statusLabels={statusLabels}
+                          onSessionExpired={onSessionExpired}
+                        />
+                      </div>
 
                       {/* 칸반 보드 */}
                       <div
+                        hidden={projectTab !== 'kanban'}
                         style={{
                           marginTop: '24px',
                           paddingTop: '20px',

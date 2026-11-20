@@ -439,6 +439,30 @@ html:has(.tf-account) {
 .tf-project-search { flex: 0 1 22rem; }
 .tf-project + .tf-project { margin-top: var(--tf-pad); }
 
+.tf-project-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-block: 16px;
+  border-bottom: 1px solid var(--tf-border);
+}
+
+.tf-project-tabs a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding-inline: 12px;
+  border-bottom: 2px solid transparent;
+  color: var(--tf-muted);
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.tf-project-tabs a:hover,
+.tf-project-tabs a[aria-current="page"] { background: #eaf0fb; color: var(--tf-blue); }
+.tf-project-tabs a[aria-current="page"] { border-bottom-color: var(--tf-blue); }
+.tf-project-tabs a:focus-visible { outline-offset: -2px; }
+
 .tf-project-stats {
   margin-top: 20px;
   padding: clamp(12px, 2vw, 20px);
