@@ -17,6 +17,7 @@ import type { NotificationItem } from './notificationSync'
 import { columns, getPriority, priorities } from './projectTaskStats'
 import { createSearchMatcher } from './search'
 import { dueDateAlerts, getDueDateAlert, getLocalCalendarDay, showDatePicker } from './taskDates'
+import { dashboardHref, myTasksHref, projectHref, readWorkspaceRoute } from './workspaceRoute'
 import './TeamFlow.css'
 
 type Project = {
@@ -29,6 +30,14 @@ const statusLabels = new Map(columns.map(({ status, label }) => [status, label])
 
 function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: () => void }) {
   const [projects, setProjects] = useState<Project[]>([])
+  const [workspaceHash, setWorkspaceHash] = useState(() => window.location.hash)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const favoriteStorageKey = `teamflow:project-favorites:${userId}`
+  const [favoriteProjectIds, setFavoriteProjectIds] = useState(() => readFavoriteProjects(favoriteStorageKey))
+  const route = readWorkspaceRoute(workspaceHash)
+  const isDashboard = route.page === 'dashboard'
+  const isMyTasks = route.page === 'my-tasks'
+  const selectedProject = projects.find(({ id }) => id === route.projectId)
   const liveTasks = useRef(new Map<number, ReturnType<typeof startProjectTaskSync>>())
   const [syncErrors, setSyncErrors] = useState(new Set<number>())
   const [memberRefreshes, setMemberRefreshes] = useState(new Map<number, number>())
@@ -38,7 +47,6 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
   const [openAttachments, setOpenAttachments] = useState<{ taskId: number; revision: number } | null>(null)
   const [projectSearch, setProjectSearch] = useState('')
   const [tasks, setTasks] = useState<Task[]>([])
-  const [notificationTarget, setNotificationTarget] = useState<{ taskId: number } | null>(null)
   const [taskSearch, setTaskSearch] = useState('')
   const [taskStatusFilter, setTaskStatusFilter] = useState('ALL')
   const [taskPriorityFilter, setTaskPriorityFilter] = useState('ALL')
@@ -90,11 +98,29 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
   const [today, setToday] = useState(() => getLocalCalendarDay(new Date()))
 
   useEffect(() => {
-    if (!notificationTarget) return
-    const card = document.getElementById(`task-${notificationTarget.taskId}`)
-    card?.focus({ preventScroll: true })
-    card?.scrollIntoView({ block: 'center', inline: 'nearest' })
-  }, [notificationTarget])
+    const updateRoute = () => {
+      setWorkspaceHash(window.location.hash)
+      setSidebarOpen(false)
+    }
+    window.addEventListener('hashchange', updateRoute)
+    return () => window.removeEventListener('hashchange', updateRoute)
+  }, [])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(favoriteStorageKey, JSON.stringify([...favoriteProjectIds]))
+    } catch {
+      return
+    }
+  }, [favoriteProjectIds, favoriteStorageKey])
+
+  const routedTask = tasks.find((task) => task.id === route.taskId && task.projectId === route.projectId)
+  const visibleRoutedTaskId = selectedProject ? routedTask?.id : undefined
+
+  useEffect(() => {
+    if (visibleRoutedTaskId !== undefined) focusTask(visibleRoutedTaskId)
+    else window.scrollTo(0, 0)
+  }, [workspaceHash, visibleRoutedTaskId])
 
   const openNotificationTask = async (item: NotificationItem) => {
     const response = await fetch(`/api/projects/${item.projectId}`, {
@@ -121,7 +147,9 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
       return filters
     })
     if (item.kind === 'COMMENT') setOpenComments({ taskId: item.taskId, revision: 0 })
-    setNotificationTarget({ taskId: item.taskId })
+    const href = projectHref(project.id, item.taskId)
+    if (window.location.hash === href) focusTask(item.taskId)
+    else window.location.hash = href
   }
 
   useEffect(() => {
@@ -386,6 +414,9 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
       const newProject: Project = await response.json()
 
       setProjects((prev) => [...prev, newProject])
+      if (readWorkspaceRoute(window.location.hash).page === 'dashboard') {
+        window.location.hash = projectHref(newProject.id)
+      }
       setName('')
       setDescription('')
     } catch (err) {
@@ -1206,15 +1237,21 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
 
   const matchesProjectSearch = createSearchMatcher(projectSearch)
   const filteredProjects = projects.filter((project) => matchesProjectSearch(project.name))
+  const favoriteProjects = filteredProjects.filter(({ id }) => favoriteProjectIds.has(id))
   const taskSearchTerm = taskSearch.trim()
   const matchesTaskSearch = createSearchMatcher(taskSearchTerm)
-  const visibleProjectNames = new Map(filteredProjects.map(({ id, name }) => [id, name]))
+  const visibleProjectNames = new Map(
+    (isDashboard || isMyTasks ? projects : selectedProject ? [selectedProject] : []).map(({ id, name }) => [id, name]),
+  )
   const filteredTasks = tasks.filter((task) => {
-    if (!visibleProjectNames.has(task.projectId)) return false
+    const projectName = visibleProjectNames.get(task.projectId)
+    if (projectName === undefined || (isDashboard && !matchesProjectSearch(projectName))) return false
 
     const assignee = assigneeFilters.get(task.projectId) ?? 'ALL'
-    const matchesAssignee = assignee === 'ALL' ||
-      (assignee === 'UNASSIGNED' ? task.assigneeId == null : String(task.assigneeId) === assignee)
+    const matchesAssignee = isMyTasks
+      ? task.assigneeId === userId
+      : assignee === 'ALL' ||
+        (assignee === 'UNASSIGNED' ? task.assigneeId == null : String(task.assigneeId) === assignee)
     const matchesSearch = matchesTaskSearch(task.title) || matchesTaskSearch(task.description)
 
     return matchesSearch && matchesAssignee &&
@@ -1222,10 +1259,97 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
       (taskPriorityFilter === 'ALL' || getPriority(task.priority).value === taskPriorityFilter)
   })
   const hasGlobalTaskFilter = taskStatusFilter !== 'ALL' || taskPriorityFilter !== 'ALL'
-  const hasTaskFilter = Boolean(taskSearch) || hasGlobalTaskFilter || assigneeFilters.size > 0
+  const hasTaskFilter = Boolean(taskSearch) || hasGlobalTaskFilter ||
+    (isDashboard ? assigneeFilters.size > 0 : selectedProject && assigneeFilters.has(selectedProject.id))
+  const workspaceTitle = isDashboard ? '대시보드' : isMyTasks ? '내 업무' : '프로젝트'
+  const project = selectedProject
+  const allProjectTasks = project ? tasks.filter((task) => task.projectId === project.id) : []
+  const projectTasks = (routedTask && !filteredTasks.some((task) => task.id === routedTask.id)
+    ? [...filteredTasks, routedTask]
+    : [...filteredTasks]).sort((first, second) => first.id - second.id)
+  const assignedIds = [...new Set(allProjectTasks.flatMap((task) =>
+    task.assigneeId == null ? [] : [task.assigneeId]
+  ))].sort()
 
   return (
-    <main className="tf-app">
+    <div className="tf-app tf-workspace">
+      <button
+        type="button"
+        className="tf-sidebar-toggle"
+        aria-controls="workspace-sidebar"
+        aria-expanded={sidebarOpen}
+        onClick={() => setSidebarOpen((previous) => !previous)}
+      >
+        {sidebarOpen ? '메뉴 닫기' : '메뉴 열기'}
+      </button>
+      <nav id="workspace-sidebar" className="tf-sidebar" aria-label="워크스페이스" data-open={sidebarOpen}>
+        <a href={dashboardHref} aria-current={isDashboard ? 'page' : undefined} onClick={() => setSidebarOpen(false)}>
+          대시보드
+        </a>
+        <a href={myTasksHref} aria-current={isMyTasks ? 'page' : undefined} onClick={() => setSidebarOpen(false)}>
+          내 업무
+        </a>
+        <h2 id="sidebar-projects-title">프로젝트 <span>{projects.length}</span></h2>
+        <label htmlFor="project-search">프로젝트 이름 검색</label>
+        <input
+          id="project-search"
+          type="search"
+          placeholder="프로젝트 이름 검색..."
+          value={projectSearch}
+          onChange={(event) => setProjectSearch(event.target.value)}
+        />
+        {dashboardStatus === 'loading' && <p className="tf-status" role="status">프로젝트를 불러오는 중입니다.</p>}
+        {dashboardStatus === 'ready' && projects.length === 0 && <p className="tf-empty">아직 프로젝트가 없습니다.</p>}
+        {dashboardStatus === 'ready' && projects.length > 0 && projectSearch.trim() && (
+          <p className="tf-status" role="status">검색 결과 {filteredProjects.length}개</p>
+        )}
+        {favoriteProjects.length > 0 && (
+          <>
+            <h3 id="sidebar-favorites-title">즐겨찾기</h3>
+            <ul aria-labelledby="sidebar-favorites-title">
+              {favoriteProjects.map((project) => (
+                <li key={project.id}>
+                  <a
+                    href={projectHref(project.id)}
+                    aria-current={project.id === route.projectId ? 'page' : undefined}
+                    onClick={() => setSidebarOpen(false)}
+                  >
+                    {project.name}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+        <ul aria-labelledby="sidebar-projects-title">
+          {filteredProjects.map((project) => (
+            <li key={project.id} className="tf-sidebar-project">
+              <a
+                href={projectHref(project.id)}
+                aria-current={project.id === route.projectId ? 'page' : undefined}
+                onClick={() => setSidebarOpen(false)}
+              >
+                {project.name}
+              </a>
+              <button
+                type="button"
+                className="tf-favorite-toggle"
+                aria-label={`${project.name} 즐겨찾기`}
+                aria-pressed={favoriteProjectIds.has(project.id)}
+                onClick={() => setFavoriteProjectIds((previous) => {
+                  const next = new Set(previous)
+                  if (next.has(project.id)) next.delete(project.id)
+                  else next.add(project.id)
+                  return next
+                })}
+              >
+                <span aria-hidden="true">{favoriteProjectIds.has(project.id) ? '★' : '☆'}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </nav>
+      <main className="tf-workspace-content">
       <header className="tf-hero">
         <NotificationCenter key={userId} onOpenTask={openNotificationTask} onSessionExpired={onSessionExpired} />
         <h1>
@@ -1235,19 +1359,13 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
         <p>
           팀 프로젝트와 작업을 한눈에 관리하세요.
         </p>
-        <nav aria-label="워크스페이스 바로가기">
-          <a href="#dashboard-title">대시보드</a>
-          <a href="#invitations-title">받은 초대</a>
-          <a href="#task-calendar-title">월간 캘린더</a>
-          <a href="#projects-title">내 프로젝트</a>
-        </nav>
       </header>
 
-      <section
+      {(isDashboard || dashboardStatus !== 'ready') && <section
         className="tf-dashboard"
         aria-labelledby="dashboard-title"
       >
-        <h2 id="dashboard-title" style={{ marginTop: 0 }}>대시보드</h2>
+        <h2 id="dashboard-title" style={{ marginTop: 0 }}>{workspaceTitle}</h2>
         {dashboardStatus === 'loading' && <p className="tf-status" role="status">워크스페이스를 불러오는 중입니다.</p>}
         {dashboardStatus === 'error' && (
           <>
@@ -1306,16 +1424,16 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
             </div>
           </>
         )}
-      </section>
+      </section>}
 
-      <InvitationInbox
+      {isDashboard && <InvitationInbox
         workspaceReady={dashboardStatus !== 'loading'}
         onAccept={handleAcceptInvitation}
-      />
+      />}
 
       {/* 프로젝트 생성 */}
-      <div className="tf-tools">
-        <section className="tf-panel" aria-labelledby="create-project-title">
+      {(isDashboard || selectedProject || (isMyTasks && dashboardStatus === 'ready')) && <div className={isDashboard ? 'tf-tools' : undefined}>
+        {isDashboard && <section className="tf-panel" aria-labelledby="create-project-title">
           <h2 id="create-project-title">
             새 프로젝트 만들기
           </h2>
@@ -1347,10 +1465,13 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
               + 프로젝트 추가
             </button>
           </form>
-        </section>
+        </section>}
 
         <section className="tf-panel" aria-labelledby="task-filter-title">
-          <h2 id="task-filter-title">작업 검색 및 필터</h2>
+          <h2 id="task-filter-title">{isMyTasks ? '내 업무' : '작업 검색 및 필터'}</h2>
+          {isMyTasks && projects.some(({ id }) => syncErrors.has(id)) && (
+            <p className="tf-status" role="status">일부 프로젝트의 작업을 불러오는 중입니다.</p>
+          )}
           <label htmlFor="task-search">작업 제목·설명 검색</label>
           <input
             id="task-search"
@@ -1396,80 +1517,63 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
                   setTaskSearch('')
                   setTaskStatusFilter('ALL')
                   setTaskPriorityFilter('ALL')
-                  setAssigneeFilters(new Map())
+                  if (!isMyTasks) setAssigneeFilters(new Map())
                 }}
               >
                 필터 초기화
               </button>
             </div>
           )}
-          {hasTaskFilter && dashboardStatus === 'ready' && (
+          {(isMyTasks || hasTaskFilter) && dashboardStatus === 'ready' && (
             filteredTasks.length > 0 ? (
-              <ul className="tf-task-search-results" role="list" aria-label="작업 검색 결과">
+              <ul className="tf-task-search-results" role="list" aria-label={isMyTasks ? '내게 배정된 작업' : '작업 검색 결과'}>
                 {filteredTasks.map((task) => (
                   <li key={task.id}>
-                    <a href={`#task-${task.id}`}>
+                    <a href={projectHref(task.projectId, task.id)} onClick={() => {
+                      if (visibleRoutedTaskId === task.id) focusTask(task.id)
+                    }}>
                       {task.title}
                       <small>{visibleProjectNames.get(task.projectId)}</small>
+                      {isMyTasks && (
+                        <small>
+                          {statusLabels.get(task.status) ?? task.status}
+                          {task.dueDate && <> · 마감 <time dateTime={task.dueDate}>{task.dueDate}</time></>}
+                        </small>
+                      )}
                     </a>
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="tf-empty">검색 조건에 맞는 작업이 없습니다.</p>
+              <p className="tf-empty">
+                {isMyTasks && !hasTaskFilter ? '내게 배정된 작업이 없습니다.' : '검색 조건에 맞는 작업이 없습니다.'}
+              </p>
             )
           )}
         </section>
-      </div>
+      </div>}
 
       {error && <p className="tf-error" role="alert">{error}</p>}
 
-      <TaskCalendar
+      {(isDashboard || selectedProject || (isMyTasks && dashboardStatus === 'ready')) && <TaskCalendar
         today={today}
         tasks={filteredTasks}
         projectNames={visibleProjectNames}
         alertsByTaskId={alertsByTaskId}
         status={dashboardStatus}
-      />
+        onTaskClick={(task) => {
+          if (visibleRoutedTaskId === task.id) focusTask(task.id)
+        }}
+      />}
 
-      <section aria-labelledby="projects-title">
-        <div className="tf-projects-heading">
-          <h2 id="projects-title">내 프로젝트 <span>{projects.length}</span></h2>
-
-          <div className="tf-project-search">
-            <label htmlFor="project-search">프로젝트 이름 검색</label>
-            <input
-              id="project-search"
-              type="search"
-              placeholder="프로젝트 이름 검색..."
-              value={projectSearch}
-              onChange={(event) => setProjectSearch(event.target.value)}
-            />
-          </div>
-        </div>
-
-        {dashboardStatus === 'ready' && projectSearch.trim() && (
-          <p role="status">검색 결과 {filteredProjects.length}개</p>
-        )}
-
-        {dashboardStatus === 'loading' && <p className="tf-status" role="status">프로젝트를 불러오는 중입니다.</p>}
-        {dashboardStatus === 'ready' && projects.length === 0 && (
-          <p className="tf-empty">아직 프로젝트가 없습니다. 새 프로젝트를 만들어 시작하세요.</p>
-        )}
-        {dashboardStatus === 'ready' && projects.length > 0 && filteredProjects.length === 0 && (
-          <p className="tf-empty">검색 결과가 없습니다.</p>
-        )}
-
-        {filteredProjects.map((project) => {
-          const allProjectTasks = tasks.filter((task) => task.projectId === project.id)
-          const projectTasks = filteredTasks
-            .filter((task) => task.projectId === project.id)
-            .sort((a, b) => a.id - b.id)
-          const assignedIds = [...new Set(allProjectTasks.flatMap((task) =>
-            task.assigneeId == null ? [] : [task.assigneeId]
-          ))].sort()
-
-          return (
+      {route.page === 'project' && !selectedProject && dashboardStatus === 'ready' && (
+        <section className="tf-panel">
+          <h2>프로젝트를 열 수 없습니다</h2>
+          <p>프로젝트가 삭제되었거나 접근 권한이 없습니다.</p>
+          <a href={dashboardHref}>대시보드로 이동</a>
+        </section>
+      )}
+        {project && (
             <section
               key={project.id}
               className="tf-project"
@@ -1866,11 +1970,28 @@ function App({ userId, onSessionExpired }: { userId: number; onSessionExpired: (
                 }}
               </ProjectCollaboration>
             </section>
-          )
-        })}
-      </section>
-    </main>
+        )}
+      </main>
+    </div>
   )
+}
+
+function readFavoriteProjects(storageKey: string) {
+  try {
+    const ids: unknown = JSON.parse(window.localStorage.getItem(storageKey) ?? '[]')
+    if (Array.isArray(ids)) {
+      return new Set(ids.filter((id): id is number => typeof id === 'number' && Number.isSafeInteger(id) && id > 0))
+    }
+  } catch {
+    return new Set<number>()
+  }
+  return new Set<number>()
+}
+
+function focusTask(taskId: number) {
+  const card = document.getElementById(`task-${taskId}`)
+  card?.focus({ preventScroll: true })
+  card?.scrollIntoView({ block: 'center', inline: 'nearest' })
 }
 
 export default App

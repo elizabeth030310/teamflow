@@ -20,6 +20,66 @@ html:has(.tf-account) {
   scroll-padding-top: var(--tf-account-height, 0px);
 }
 
+.tf-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 15rem) minmax(0, 1fr);
+  align-items: start;
+  gap: var(--tf-pad);
+}
+
+.tf-workspace-content { min-width: 0; }
+.tf-workspace .tf-sidebar-toggle { display: none; }
+
+.tf-sidebar {
+  position: sticky;
+  top: calc(var(--tf-account-height, 0px) + var(--tf-pad));
+  max-height: max(0px, calc(100dvh - var(--tf-account-height, 0px) - 2 * var(--tf-pad)));
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid var(--tf-border);
+  border-radius: 12px;
+  background: #f8faff;
+}
+
+.tf-workspace .tf-sidebar h2 { margin: 16px 0 10px; }
+.tf-sidebar h2 span { color: var(--tf-muted); font-size: 0.85rem; }
+.tf-workspace .tf-sidebar h3 { margin: 14px 0 0; font-size: 0.9rem; color: var(--tf-muted); }
+.tf-sidebar ul { list-style: none; padding: 0; margin: 10px 0 0; }
+.tf-sidebar li + li { margin-top: 2px; }
+
+.tf-sidebar a {
+  display: block;
+  padding: 7px 10px;
+  border-radius: 6px;
+  color: var(--tf-text);
+  text-decoration: none;
+}
+
+.tf-sidebar a:hover,
+.tf-sidebar a[aria-current="page"] { background: #eaf0fb; color: var(--tf-blue); }
+.tf-sidebar a[aria-current="page"] { font-weight: 700; }
+.tf-sidebar a:focus-visible { outline-offset: -2px; }
+
+.tf-sidebar-project {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.tf-workspace .tf-favorite-toggle {
+  width: 36px;
+  height: 36px;
+  min-height: 0;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--tf-muted);
+  font-size: 1.125rem;
+}
+
+.tf-workspace .tf-favorite-toggle[aria-pressed="true"] { color: var(--tf-blue); }
+
 .tf-app h1,
 .tf-app h2,
 .tf-app h3,
@@ -799,11 +859,25 @@ html:has(.tf-account) {
   margin-block: 12px;
 }
 
+@media (max-width: 1140px) {
+  .tf-workspace .tf-board {
+    grid-template-columns: repeat(3, clamp(min(15rem, 88%), 34%, 19rem));
+  }
+  .tf-workspace .tf-board-hint { display: block; }
+}
+
 @media (max-width: 920px) {
   .tf-board {
     grid-template-columns: repeat(3, clamp(min(15rem, 88%), 34%, 19rem));
   }
   .tf-board-hint { display: block; }
+}
+
+@media (max-width: 760px) {
+  .tf-workspace { grid-template-columns: minmax(0, 1fr); }
+  .tf-workspace .tf-sidebar-toggle { display: block; justify-self: start; }
+  .tf-sidebar { position: static; max-height: 45dvh; }
+  .tf-sidebar[data-open="false"] { display: none; }
 }
 
 @media (max-width: 700px) {

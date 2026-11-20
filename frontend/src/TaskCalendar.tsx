@@ -3,15 +3,17 @@ import type { Task } from './projectTaskSync'
 import { dueDateAlerts, getCalendarDate, getMonthWeeks } from './taskDates'
 import type { DueDateAlert } from './taskDates'
 import ScrollRegion from './ScrollRegion'
+import { projectHref } from './workspaceRoute'
 
 const weekdays = ['일', '월', '화', '수', '목', '금', '토']
 
-export default function TaskCalendar({ today, tasks, projectNames, alertsByTaskId, status }: {
+export default function TaskCalendar({ today, tasks, projectNames, alertsByTaskId, status, onTaskClick }: {
   today: number
   tasks: Task[]
   projectNames: ReadonlyMap<number, string>
   alertsByTaskId: ReadonlyMap<number, DueDateAlert>
   status: 'loading' | 'ready' | 'error'
+  onTaskClick: (task: Task) => void
 }) {
   const [selectedMonth, setSelectedMonth] = useState<Date | null>(null)
   const currentDate = getCalendarDate(today)
@@ -72,7 +74,7 @@ export default function TaskCalendar({ today, tasks, projectNames, alertsByTaskI
                               const badge = alert && dueDateAlerts[alert]
                               return (
                                 <li key={task.id}>
-                                  <a href={`#task-${task.id}`}>
+                                  <a href={projectHref(task.projectId, task.id)} onClick={() => onTaskClick(task)}>
                                     {task.title}
                                     <small>{projectNames.get(task.projectId)}</small>
                                   </a>
