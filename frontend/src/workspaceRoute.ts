@@ -7,6 +7,7 @@ export const projectTabs = [
   { id: 'calendar', label: '캘린더' },
   { id: 'stats', label: '통계' },
   { id: 'members', label: '멤버' },
+  { id: 'pages', label: '문서' },
 ] as const
 
 type ProjectTab = typeof projectTabs[number]['id']

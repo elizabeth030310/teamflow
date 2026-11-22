@@ -15,7 +15,7 @@ test('project and task links restore their selected page from the URL', () => {
 
 test('project tab links restore their tab without changing the canonical project link', () => {
   assert.equal(projectTabHref(27, 'kanban'), projectHref(27))
-  for (const tab of ['calendar', 'stats', 'members']) {
+  for (const tab of ['calendar', 'stats', 'members', 'pages']) {
     const href = projectTabHref(27, tab)
     assert.equal(href, `#/projects/27/${tab}`)
     assert.deepEqual(readWorkspaceRoute(href), { page: 'project', projectId: 27, taskId: null, tab })

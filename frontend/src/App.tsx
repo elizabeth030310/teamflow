@@ -12,6 +12,7 @@ import TaskChecklist from './TaskChecklist'
 import TaskAttachments from './TaskAttachments'
 import TaskCalendar from './TaskCalendar'
 import ProjectStats from './ProjectStats'
+import ProjectPages from './ProjectPages'
 import NotificationCenter from './NotificationCenter'
 import ScrollRegion from './ScrollRegion'
 import type { NotificationItem } from './notificationSync'
@@ -1709,6 +1710,10 @@ function App({ userId, onSessionExpired }: {
                   return (
                     <>
                       <div hidden={projectTab !== 'calendar'}>{calendar}</div>
+                      {projectTab === 'pages' && (
+                        <ProjectPages key={project.id} projectId={project.id} userId={userId}
+                          onSessionExpired={onSessionExpired} />
+                      )}
                       <div hidden={projectTab !== 'stats'}>
                         {dashboardStatus === 'ready' && (
                           <ProjectStats project={project} tasks={allProjectTasks} members={members} today={today} />

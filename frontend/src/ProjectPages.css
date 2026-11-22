@@ -1,0 +1,87 @@
+.tf-pages {
+  display: grid;
+  grid-template-columns: minmax(12rem, 28%) minmax(0, 1fr);
+  margin-top: 20px;
+  border: 1px solid var(--tf-border);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.tf-page-sidebar {
+  padding: 14px;
+  border-inline-end: 1px solid var(--tf-border);
+  border-radius: 11px 0 0 11px;
+  background: #f7f9fc;
+  min-width: 0;
+}
+
+.tf-page-sidebar-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.tf-page-sidebar h3 { margin: 0; }
+.tf-page-sidebar ul { list-style: none; padding: 0; margin: 0; }
+.tf-page-sidebar nav { max-height: min(55vh, 32rem); overflow: auto; }
+
+.tf-page-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 2px;
+  margin-block: 2px;
+}
+
+.tf-pages .tf-page-toggle,
+.tf-pages .tf-page-link {
+  border-color: transparent;
+  background: transparent;
+  min-height: 32px;
+  padding: 2px 4px;
+}
+
+.tf-pages .tf-page-link {
+  text-align: start;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tf-pages .tf-page-toggle:hover,
+.tf-pages .tf-page-link:hover,
+.tf-pages .tf-page-link[aria-current='page'] { background: #eaf0fb; color: var(--tf-blue); }
+.tf-pages .tf-page-link[aria-current='page'] { font-weight: 700; }
+.tf-pages .tf-page-refresh { margin-top: 12px; }
+
+.tf-page-workspace { min-width: 0; padding: clamp(16px, 3vw, 32px); }
+.tf-page-detail h3, .tf-page-form h3 { margin: 0 0 16px; overflow-wrap: anywhere; }
+.tf-page-hint { color: var(--tf-muted); font-size: 0.875rem; }
+.tf-page-editor { display: grid; gap: 10px; margin-top: 16px; }
+.tf-page-editor .tf-actions { align-items: center; }
+.tf-page-editor textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 12rem;
+  resize: vertical;
+  padding: 12px;
+  border: 1px solid var(--tf-border);
+  border-radius: 8px;
+  font: inherit;
+  line-height: 1.6;
+}
+.tf-page-form { display: grid; gap: 10px; max-width: 36rem; overflow-wrap: anywhere; }
+.tf-page-form p { margin: 0; }
+
+@media (max-width: 920px) {
+  .tf-pages { grid-template-columns: minmax(0, 1fr); }
+  .tf-page-sidebar {
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--tf-border);
+    border-radius: 11px 11px 0 0;
+  }
+  .tf-page-sidebar nav { max-height: 17rem; }
+}
