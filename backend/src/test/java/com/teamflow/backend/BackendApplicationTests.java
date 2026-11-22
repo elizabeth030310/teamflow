@@ -69,15 +69,21 @@ class BackendApplicationTests {
 		User member = users.save(new User("Member", newEmail(), passwords.encode(password)));
 		String list = "/api/admin/users";
 		String audit = "/api/admin/audit";
+		String auditPage = audit + "/page";
+		String stats = list + "/stats";
 		String change = list + "/" + member.getId() + "/status";
 
 		mvc.perform(get(list)).andExpect(status().isUnauthorized());
 		mvc.perform(get(audit)).andExpect(status().isUnauthorized());
+		mvc.perform(get(auditPage)).andExpect(status().isUnauthorized());
+		mvc.perform(get(stats)).andExpect(status().isUnauthorized());
 		changeMemberStatus(mvc, null, change, "SUSPENDED", 0, "review").andExpect(status().isUnauthorized());
 		MockHttpSession memberSession = (MockHttpSession) login(mvc, member.getEmail(), password)
 				.andExpect(status().isOk()).andReturn().getRequest().getSession(false);
 		mvc.perform(get(list).session(memberSession)).andExpect(status().isForbidden());
 		mvc.perform(get(audit).session(memberSession)).andExpect(status().isForbidden());
+		mvc.perform(get(auditPage).session(memberSession)).andExpect(status().isForbidden());
+		mvc.perform(get(stats).session(memberSession)).andExpect(status().isForbidden());
 		changeMemberStatus(mvc, memberSession, change, "SUSPENDED", 0, "review").andExpect(status().isForbidden());
 		assertThatThrownBy(() -> jdbc.update("UPDATE users SET role = 'ADMIN' WHERE id = ?", member.getId()))
 				.isInstanceOf(DataIntegrityViolationException.class);
@@ -94,6 +100,12 @@ class BackendApplicationTests {
 				.andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
 				.andExpect(jsonPath("$[*].password").isEmpty())
 				.andExpect(jsonPath("$[?(@.email == '%s')].status".formatted(member.getEmail())).value("ACTIVE"));
+		long activeMembers = jdbc.queryForObject("SELECT count(*) FROM users WHERE role = 'USER'", Long.class);
+		expectMemberStats(mvc, adminSession, stats, activeMembers, 0, 0);
+		mvc.perform(get(auditPage).session(adminSession))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.entries").isEmpty())
+				.andExpect(jsonPath("$.nextCursor").isEmpty());
 		changeMemberStatus(mvc, adminSession, list + "/3/status", "SUSPENDED", 0, "review")
 				.andExpect(status().isForbidden());
 		changeMemberStatus(mvc, adminSession, list + "/2147483647/status", "SUSPENDED", 0, "review")
@@ -116,11 +128,13 @@ class BackendApplicationTests {
 		}
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM admin_member_audit WHERE target_id = ?", Long.class,
 				member.getId())).isEqualTo(1L);
+		expectMemberStats(mvc, adminSession, stats, activeMembers - 1, 1, 0);
 		mvc.perform(get("/api/auth/me").session(memberSession)).andExpect(status().isUnauthorized());
 		mvc.perform(get("/api/projects").session(memberSession)).andExpect(status().isUnauthorized());
 		login(mvc, member.getEmail(), password).andExpect(status().isUnauthorized());
 
 		changeMemberStatus(mvc, adminSession, change, "ACTIVE", 1, "resolved").andExpect(status().isNoContent());
+		expectMemberStats(mvc, adminSession, stats, activeMembers, 0, 0);
 		mvc.perform(get("/api/auth/me").session(memberSession)).andExpect(status().isUnauthorized());
 		MockHttpSession restored = (MockHttpSession) login(mvc, member.getEmail(), password)
 				.andExpect(status().isOk()).andReturn().getRequest().getSession(false);
@@ -131,6 +145,7 @@ class BackendApplicationTests {
 		retainedProject.setOwner(member);
 		long projectId = projects.save(retainedProject).getId();
 		changeMemberStatus(mvc, adminSession, change, "WITHDRAWN", 2, "withdrawal").andExpect(status().isNoContent());
+		expectMemberStats(mvc, adminSession, stats, activeMembers - 1, 0, 1);
 		mvc.perform(get("/api/auth/me").session(restored)).andExpect(status().isUnauthorized());
 		login(mvc, member.getEmail(), password).andExpect(status().isUnauthorized());
 		changeMemberStatus(mvc, adminSession, change, "ACTIVE", 3, "review").andExpect(status().isConflict());
@@ -143,13 +158,50 @@ class BackendApplicationTests {
 				.andExpect(jsonPath("$[0].toStatus").value("WITHDRAWN"))
 				.andExpect(jsonPath("$[0].reason").value("withdrawal"));
 
+		String cursor = String.valueOf(jdbc.queryForObject(
+				"SELECT id FROM admin_member_audit WHERE target_id = ? AND to_status = 'ACTIVE'", Long.class, member.getId()));
+		mvc.perform(get(auditPage).session(adminSession).param("limit", "1"))
+				.andExpect(status().isOk())
+				.andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+				.andExpect(jsonPath("$.entries.length()").value(1))
+				.andExpect(jsonPath("$.entries[0].toStatus").value("WITHDRAWN"))
+				.andExpect(jsonPath("$.entries[0].occurredAt").isString())
+				.andExpect(jsonPath("$.entries[0].email").doesNotHaveJsonPath())
+				.andExpect(jsonPath("$.nextCursor").value(cursor));
+		mvc.perform(get(auditPage).session(adminSession).param("cursor", cursor))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.entries.length()").value(2))
+				.andExpect(jsonPath("$.entries[0].toStatus").value("ACTIVE"))
+				.andExpect(jsonPath("$.entries[1].toStatus").value("SUSPENDED"))
+				.andExpect(jsonPath("$.nextCursor").isEmpty());
+		mvc.perform(get(auditPage).session(adminSession).param("toStatus", "SUSPENDED"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.entries.length()").value(1))
+				.andExpect(jsonPath("$.entries[0].toStatus").value("SUSPENDED"));
+		mvc.perform(get(auditPage).session(adminSession).param("limit", "101")).andExpect(status().isBadRequest());
+		mvc.perform(get(auditPage).session(adminSession).param("cursor", "0")).andExpect(status().isBadRequest());
+		mvc.perform(get(auditPage).session(adminSession).param("toStatus", "UNKNOWN")).andExpect(status().isBadRequest());
+
 		try {
 			jdbc.update("UPDATE users SET account_status = 'SUSPENDED', access_revision = 1 WHERE id = 3");
 			mvc.perform(get(audit).session(adminSession)).andExpect(status().isUnauthorized());
+			mvc.perform(get(auditPage).session(adminSession)).andExpect(status().isUnauthorized());
+			mvc.perform(get(stats).session(adminSession)).andExpect(status().isUnauthorized());
 			login(mvc, adminEmail, password).andExpect(status().isUnauthorized());
 		} finally {
 			jdbc.update("UPDATE users SET account_status = 'ACTIVE', access_revision = 2 WHERE id = 3");
 		}
+	}
+
+	private void expectMemberStats(MockMvc mvc, MockHttpSession session, String path,
+								   long active, long suspended, long withdrawn) throws Exception {
+		mvc.perform(get(path).session(session))
+				.andExpect(status().isOk())
+				.andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+				.andExpect(jsonPath("$.total").value((int) (active + suspended + withdrawn)))
+				.andExpect(jsonPath("$.active").value((int) active))
+				.andExpect(jsonPath("$.suspended").value((int) suspended))
+				.andExpect(jsonPath("$.withdrawn").value((int) withdrawn));
 	}
 
 	private ResultActions changeMemberStatus(MockMvc mvc, MockHttpSession session, String path,

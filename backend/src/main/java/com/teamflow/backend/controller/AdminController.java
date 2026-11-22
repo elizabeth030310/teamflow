@@ -40,6 +40,12 @@ public class AdminController {
                              User.Status toStatus, String reason, OffsetDateTime occurredAt) {
     }
 
+    public record AuditPage(List<AuditEntry> entries, String nextCursor) {
+    }
+
+    public record MemberStats(long total, long active, long suspended, long withdrawn) {
+    }
+
     public record StatusChange(@NotNull User.Status status, @NotNull @PositiveOrZero Long revision,
                                @NotBlank @Size(max = 300) String reason) {
     }
@@ -55,14 +61,48 @@ public class AdminController {
 
     @GetMapping("/audit")
     public ResponseEntity<List<AuditEntry>> audit() {
-        var entries = jdbc.query("""
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(findAuditEntries(Long.MAX_VALUE, null, 100));
+    }
+
+    @GetMapping("/audit/page")
+    public ResponseEntity<AuditPage> auditPage(
+            @RequestParam(defaultValue = "9223372036854775807") long cursor,
+            @RequestParam(required = false) User.Status toStatus,
+            @RequestParam(defaultValue = "25") int limit) {
+        if (cursor < 1 || limit < 1 || limit > 100) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+        }
+        var entries = findAuditEntries(cursor, toStatus, limit + 1);
+        String nextCursor = entries.size() > limit ? Long.toString(entries.get(limit).id()) : null;
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(new AuditPage(entries.subList(0, Math.min(limit, entries.size())), nextCursor));
+    }
+
+    @GetMapping("/users/stats")
+    public ResponseEntity<MemberStats> memberStats() {
+        var stats = jdbc.queryForObject("""
+                SELECT count(*) AS total,
+                       count(*) FILTER (WHERE account_status = 'ACTIVE') AS active,
+                       count(*) FILTER (WHERE account_status = 'SUSPENDED') AS suspended,
+                       count(*) FILTER (WHERE account_status = 'WITHDRAWN') AS withdrawn
+                FROM users WHERE role = 'USER'
+                """, (row, index) -> new MemberStats(row.getLong("total"), row.getLong("active"),
+                row.getLong("suspended"), row.getLong("withdrawn")));
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(stats);
+    }
+
+    private List<AuditEntry> findAuditEntries(long cursor, User.Status toStatus, int limit) {
+        String status = toStatus == null ? "" : toStatus.name();
+        return jdbc.query("""
                 SELECT id, actor_id, target_id, from_status, to_status, reason, occurred_at
-                FROM admin_member_audit ORDER BY id DESC LIMIT 100
+                FROM admin_member_audit
+                WHERE id <= ? AND (? = '' OR to_status = ?)
+                ORDER BY id DESC LIMIT ?
                 """, (row, index) -> new AuditEntry(row.getLong("id"), row.getLong("actor_id"),
                 row.getLong("target_id"), User.Status.valueOf(row.getString("from_status")),
                 User.Status.valueOf(row.getString("to_status")), row.getString("reason"),
-                row.getObject("occurred_at", OffsetDateTime.class)));
-        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(entries);
+                row.getObject("occurred_at", OffsetDateTime.class)), cursor, status, status, limit);
     }
 
     @Transactional

@@ -381,7 +381,30 @@ html:has(.tf-account) {
 .tf-admin > section + section { margin-top: var(--tf-pad); }
 .tf-admin-controls { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
 .tf-admin-controls label { display: grid; gap: 6px; }
+.tf-admin-controls button { align-self: end; }
+.tf-admin-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
+  gap: 12px;
+  margin: 12px 0 0;
+}
+.tf-admin-stats > div {
+  padding: 12px;
+  border: 1px solid var(--tf-border);
+  border-radius: 8px;
+}
+.tf-admin-stats dt { color: var(--tf-muted); }
+.tf-admin-stats dd { margin: 4px 0 0; font-size: 1.5rem; font-weight: 700; }
+.tf-admin-error, .tf-admin-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.tf-admin-error p { margin: 0; }
+.tf-admin-pagination { justify-content: flex-end; margin-top: 12px; }
 .tf-admin-table { overflow-x: auto; }
+.tf-admin-reason { white-space: pre-wrap; }
 .tf-admin-dialog { width: min(32rem, calc(100% - 32px)); color: var(--tf-text); }
 .tf-admin-dialog form { display: grid; gap: 12px; }
 .tf-admin-dialog p { margin: 0; }

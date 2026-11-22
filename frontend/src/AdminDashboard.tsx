@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { createSearchMatcher } from './search'
 
@@ -7,59 +7,91 @@ type Member = { id: number; name: string; email: string; role: 'ADMIN' | 'USER';
 type AuditEntry = {
   id: number; actorId: number; targetId: number; fromStatus: Status; toStatus: Status; reason: string; occurredAt: string
 }
+type AuditPage = { entries: AuditEntry[]; nextCursor: string | null }
+type MemberStats = { total: number; active: number; suspended: number; withdrawn: number }
 type Confirmation = { member: Member; status: Status }
 
 const statuses: Record<Status, string> = { ACTIVE: '정상', SUSPENDED: '정지', WITHDRAWN: '강제탈퇴' }
 const actions: Record<Status, string> = { ACTIVE: '정지 해제', SUSPENDED: '정지', WITHDRAWN: '강제탈퇴' }
+const statLabels: Record<keyof MemberStats, string> = {
+  total: '전체 회원', active: '정상', suspended: '정지', withdrawn: '강제탈퇴',
+}
+const numberFormat = new Intl.NumberFormat('ko-KR')
+const dateFormat = new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium', timeStyle: 'short' })
+
+function useAdminResource<T>(url: string, refresh: number, onSessionExpired: () => void) {
+  const [attempt, setAttempt] = useState(0)
+  const request = useMemo(() => ({ url, refresh, attempt }), [url, refresh, attempt])
+  const [result, setResult] = useState<{ request: typeof request } &
+    ({ data: T; error?: never } | { data?: never; error: true })>()
+  const current = result?.request === request ? result : undefined
+
+  useEffect(() => {
+    const controller = new AbortController()
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)])
+    async function load() {
+      try {
+        const response = await fetch(request.url, { signal })
+        if (controller.signal.aborted) return
+        if (response.status === 401 || response.status === 403) {
+          onSessionExpired()
+          return
+        }
+        if (!response.ok) throw new Error('Admin request failed')
+        const data = await response.json() as T
+        if (!controller.signal.aborted) setResult({ request, data })
+      } catch {
+        if (!controller.signal.aborted) setResult({ request, error: true })
+      }
+    }
+
+    void load()
+    return () => controller.abort()
+  }, [request, onSessionExpired])
+
+  return {
+    data: current?.data,
+    error: current?.error,
+    loading: !current,
+    retry: () => setAttempt((previous) => previous + 1),
+  }
+}
+
+function LoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return <div className="tf-admin-error">
+    <p className="tf-error" role="alert">{message}</p>
+    <button type="button" onClick={onRetry}>다시 시도</button>
+  </div>
+}
 
 export default function AdminDashboard({ onSessionExpired }: { onSessionExpired: () => void }) {
-  const [data, setData] = useState<{ members: Member[]; audit: AuditEntry[] } | null>(null)
-  const [attempt, setAttempt] = useState(0)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const [refresh, setRefresh] = useState(0)
   const [notice, setNotice] = useState('')
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<Status | ''>('')
+  const [auditFilter, setAuditFilter] = useState<Status | ''>('')
+  // Each cursor points to the first record of the next page.
+  const [auditCursors, setAuditCursors] = useState<string[]>([])
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null)
   const [dialogError, setDialogError] = useState('')
   const [saving, setSaving] = useState(false)
   const dialog = useRef<HTMLDialogElement>(null)
 
-  useEffect(() => {
-    const controller = new AbortController()
-    const options = { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)]) }
-    async function loadMembers() {
-      try {
-        const [members, audit] = await Promise.all([
-          fetch('/api/admin/users', options),
-          fetch('/api/admin/audit', options),
-        ])
-        if (controller.signal.aborted) return
-        if ([members, audit].some(({ status }) => status === 401 || status === 403)) {
-          onSessionExpired()
-          return
-        }
-        if (!members.ok || !audit.ok) throw new Error('Could not load member management')
-        const next = { members: await members.json() as Member[], audit: await audit.json() as AuditEntry[] }
-        if (!controller.signal.aborted) setData(next)
-      } catch {
-        if (!controller.signal.aborted) setError('회원 목록과 감사 기록을 불러오지 못했습니다.')
-      } finally {
-        if (!controller.signal.aborted) setLoading(false)
-      }
-    }
-    void loadMembers()
-    return () => controller.abort()
-  }, [attempt, onSessionExpired])
+  const auditParams = new URLSearchParams()
+  const cursor = auditCursors.at(-1)
+  if (cursor) auditParams.set('cursor', cursor)
+  if (auditFilter) auditParams.set('toStatus', auditFilter)
+  const members = useAdminResource<Member[]>('/api/admin/users', refresh, onSessionExpired)
+  const stats = useAdminResource<MemberStats>('/api/admin/users/stats', refresh, onSessionExpired)
+  const audit = useAdminResource<AuditPage>(`/api/admin/audit/page?${auditParams}`, refresh, onSessionExpired)
 
   useEffect(() => {
     if (confirmation) dialog.current?.showModal()
   }, [confirmation])
 
   function reload() {
-    setLoading(true)
-    setError('')
-    setAttempt((previous) => previous + 1)
+    setAuditCursors([])
+    setRefresh((previous) => previous + 1)
   }
 
   function openConfirmation(member: Member, status: Status) {
@@ -103,12 +135,33 @@ export default function AdminDashboard({ onSessionExpired }: { onSessionExpired:
   }
 
   const matches = createSearchMatcher(search)
-  const members = data?.members.filter((member) =>
-    (!filter || filter === member.status) && (matches(member.name) || matches(member.email))) ?? []
+  const visibleMembers = members.data?.filter((member) =>
+    (!filter || filter === member.status) && (matches(member.name) || matches(member.email)))
+  const memberNames = new Map(members.data?.map(({ id, name }) => [id, name]))
+  const memberStats = stats.data
+  const nextCursor = audit.data?.nextCursor
+
+  function memberLabel(id: number) {
+    const name = memberNames.get(id)
+    return name ? `${name} (#${id})` : `#${id}`
+  }
 
   return (
     <main className="tf-app tf-admin" aria-labelledby="admin-title">
       <h1 id="admin-title">회원 관리</h1>
+      {notice && <p className="tf-status" role="status">{notice}</p>}
+      <section className="tf-panel" aria-labelledby="admin-stats-title">
+        <h2 id="admin-stats-title">회원 상태 통계</h2>
+        <p>일반 회원 기준 · 회원 목록의 검색 및 필터와 별개</p>
+        {stats.loading && <p className="tf-status" role="status">회원 통계를 불러오는 중입니다.</p>}
+        {stats.error && <LoadError message="회원 통계를 불러오지 못했습니다." onRetry={stats.retry} />}
+        {memberStats && <dl className="tf-admin-stats">
+          {(Object.keys(statLabels) as (keyof MemberStats)[]).map((key) => (
+            <div key={key}><dt>{statLabels[key]}</dt><dd>{numberFormat.format(memberStats[key])}</dd></div>
+          ))}
+        </dl>}
+        {memberStats?.total === 0 && <p>등록된 일반 회원이 없습니다.</p>}
+      </section>
       <section className="tf-panel" aria-labelledby="admin-members-title">
         <h2 id="admin-members-title">회원 목록</h2>
         <div className="tf-admin-controls">
@@ -119,50 +172,75 @@ export default function AdminDashboard({ onSessionExpired }: { onSessionExpired:
             {Object.entries(statuses).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select></label>
         </div>
-        {notice && <p className="tf-status" role="status">{notice}</p>}
-        {loading && <p className="tf-status" role="status">회원 정보를 불러오는 중입니다.</p>}
-        {error && <p className="tf-error" role="alert">{error} <button type="button" onClick={reload}>다시 시도</button></p>}
-        {data && (
-          <div className="tf-admin-table">
+        {members.loading && <p className="tf-status" role="status">회원 목록을 불러오는 중입니다.</p>}
+        {members.error && <LoadError message="회원 목록을 불러오지 못했습니다." onRetry={members.retry} />}
+        {visibleMembers?.length === 0 && (
+          <p role="status">{search.trim() || filter ? '조건에 맞는 회원이 없습니다.' : '등록된 회원이 없습니다.'}</p>
+        )}
+        {visibleMembers && visibleMembers.length > 0 && (
+          <div className="tf-admin-table" role="region" aria-labelledby="admin-members-title" tabIndex={0}>
             <table className="tf-admin-users" aria-labelledby="admin-members-title">
               <thead><tr><th scope="col">이름</th><th scope="col">이메일</th><th scope="col">상태</th><th scope="col">조치</th></tr></thead>
               <tbody>
-                {members.map((member) => (
+                {visibleMembers.map((member) => (
                   <tr key={member.id}>
                     <th scope="row">{member.name}{member.role === 'ADMIN' && ' (관리자)'}</th>
                     <td>{member.email}</td><td>{statuses[member.status]}</td>
                     <td>{member.role === 'ADMIN' || member.status === 'WITHDRAWN' ? '—' : (
                       <div className="tf-actions">
                         {([member.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE', 'WITHDRAWN'] as const).map((status) => (
-                          <button key={status} type="button" disabled={loading || Boolean(error)}
+                          <button key={status} type="button"
                             onClick={() => openConfirmation(member, status)}>{actions[status]}</button>
                         ))}
                       </div>
                     )}</td>
                   </tr>
                 ))}
-                {members.length === 0 && <tr><td colSpan={4}>조건에 맞는 회원이 없습니다.</td></tr>}
               </tbody>
             </table>
           </div>
         )}
       </section>
       <section className="tf-panel" aria-labelledby="admin-audit-title">
-        <h2 id="admin-audit-title">최근 감사 기록</h2>
-        {data && (data.audit.length === 0 ? <p>기록된 회원 조치가 없습니다.</p> : (
-          <div className="tf-admin-table">
+        <h2 id="admin-audit-title">회원 조치 감사 기록</h2>
+        <div className="tf-admin-controls">
+          <label>변경 후 상태<select value={auditFilter} onChange={(event) => {
+            setAuditFilter(event.target.value as Status | '')
+            setAuditCursors([])
+          }}>
+            <option value="">전체</option>
+            {Object.entries(statuses).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select></label>
+          <button type="button" onClick={() => { setAuditCursors([]); audit.retry() }}>최신 기록 새로고침</button>
+        </div>
+        {audit.loading && <p className="tf-status" role="status">감사 기록을 불러오는 중입니다.</p>}
+        {audit.error && <LoadError message="감사 기록을 불러오지 못했습니다." onRetry={audit.retry} />}
+        {audit.data?.entries.length === 0 && <p role="status">
+          {auditFilter ? '선택한 상태에 해당하는 감사 기록이 없습니다.' : '기록된 회원 조치가 없습니다.'}
+        </p>}
+        {audit.data && audit.data.entries.length > 0 && (
+          <div className="tf-admin-table" role="region" aria-labelledby="admin-audit-title" tabIndex={0}>
             <table className="tf-admin-users" aria-labelledby="admin-audit-title">
-              <thead><tr><th scope="col">처리 일시</th><th scope="col">처리자 / 대상</th><th scope="col">상태 변경</th><th scope="col">사유</th></tr></thead>
-              <tbody>{data.audit.map((entry) => (
+              <thead><tr><th scope="col">처리 일시</th><th scope="col">처리자</th><th scope="col">대상 회원</th><th scope="col">상태 변경</th><th scope="col">사유</th></tr></thead>
+              <tbody>{audit.data.entries.map((entry) => (
                 <tr key={entry.id}>
-                  <td>{new Date(entry.occurredAt).toLocaleString('ko-KR')}</td>
-                  <td>#{entry.actorId} / #{entry.targetId} {data.members.find(({ id }) => id === entry.targetId)?.name}</td>
-                  <td>{statuses[entry.fromStatus]} → {statuses[entry.toStatus]}</td><td>{entry.reason}</td>
+                  <td><time dateTime={entry.occurredAt}>{dateFormat.format(new Date(entry.occurredAt))}</time></td>
+                  <td>{memberLabel(entry.actorId)}</td>
+                  <td>{memberLabel(entry.targetId)}</td>
+                  <td>{statuses[entry.fromStatus]} → {statuses[entry.toStatus]}</td>
+                  <td className="tf-admin-reason">{entry.reason}</td>
                 </tr>
               ))}</tbody>
             </table>
           </div>
-        ))}
+        )}
+        <nav className="tf-admin-pagination" aria-label="감사 기록 페이지">
+          <button type="button" disabled={!cursor || audit.loading}
+            onClick={() => setAuditCursors(auditCursors.slice(0, -1))}>더 최신</button>
+          <span aria-live="polite">{auditCursors.length + 1}페이지</span>
+          <button type="button" disabled={!nextCursor}
+            onClick={() => { if (nextCursor) setAuditCursors([...auditCursors, nextCursor]) }}>더 이전</button>
+        </nav>
       </section>
       {confirmation && (
         <dialog ref={dialog} className="tf-panel tf-admin-dialog" aria-labelledby="admin-dialog-title"
