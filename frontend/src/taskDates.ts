@@ -1,7 +1,7 @@
 export const dueDateAlerts = {
-  overdue: { label: '기한 초과', color: '#991b1b', background: '#fee2e2' },
-  today: { label: '오늘 마감', color: '#9a3412', background: '#ffedd5' },
-  upcoming: { label: '마감 임박', color: '#854d0e', background: '#fef9c3' },
+  overdue: { label: '기한 초과', color: 'var(--tf-overdue)', background: 'var(--tf-priority-high-fill)' },
+  today: { label: '오늘 마감', color: 'var(--tf-due-today)', background: 'var(--tf-due-today-fill)' },
+  upcoming: { label: '마감 임박', color: 'var(--tf-due-upcoming)', background: 'var(--tf-due-upcoming-fill)' },
 }
 
 export type DueDateAlert = keyof typeof dueDateAlerts

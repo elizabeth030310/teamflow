@@ -1,21 +1,3 @@
-:root {
-  --tf-text: #242923;
-  --tf-muted: #565f56;
-  --tf-border: #e0e4dc;
-  --tf-control-border: #8b958a;
-  --tf-accent: #285944;
-  --tf-blue: var(--tf-accent);
-  --tf-accent-hover: #1d4534;
-  --tf-active: #e5f0e8;
-  --tf-surface: #fff;
-  --tf-subtle: #f6f7f3;
-  --tf-canvas: #fafbf8;
-  --tf-radius: 9px;
-  --tf-shadow: 0 1px 2px rgb(28 37 28 / 7%);
-  --tf-popover-shadow: 0 12px 36px rgb(28 37 28 / 15%);
-  --tf-pad: clamp(16px, 2.7vw, 36px);
-}
-
 .tf-app {
   width: min(100%, 1480px);
   margin-inline: auto;
@@ -25,7 +7,7 @@
   overflow-wrap: anywhere;
 }
 
-body:has(.tf-app) {
+body {
   background: var(--tf-canvas);
 }
 
@@ -92,8 +74,8 @@ html:has(.tf-account) {
   width: 29px;
   height: 29px;
   border-radius: 8px;
-  color: var(--tf-surface);
-  background: var(--tf-blue);
+  color: var(--tf-on-accent);
+  background: var(--tf-accent-fill);
 }
 
 .tf-workspace .tf-sidebar-toggle {
@@ -231,20 +213,20 @@ html:has(.tf-account) {
 .tf-app button:disabled { opacity: 0.65; cursor: not-allowed; }
 
 .tf-app .tf-primary {
-  color: #fff;
-  border-color: var(--tf-blue);
-  background: var(--tf-blue);
+  color: var(--tf-on-accent);
+  border-color: var(--tf-accent-fill);
+  background: var(--tf-accent-fill);
 }
 
 .tf-app .tf-primary:not(:disabled):hover { background: var(--tf-accent-hover); }
 
 .tf-app .tf-danger {
-  color: #9d2330;
-  border-color: #edc4c9;
-  background: #fff8f8;
+  color: var(--tf-danger-text);
+  border-color: var(--tf-danger-border);
+  background: var(--tf-danger-surface);
 }
 
-.tf-app .tf-danger:not(:disabled):hover { background: #fce5e8; }
+.tf-app .tf-danger:not(:disabled):hover { background: var(--tf-danger-hover); }
 
 .tf-app :is(a, button, input, select, textarea, summary, [tabindex]):focus-visible,
 .tf-task-card:focus {
@@ -295,6 +277,24 @@ html:has(.tf-account) {
   background: var(--tf-surface);
 }
 
+.tf-app .tf-theme-select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.tf-app .tf-theme-select select { width: auto; }
+
+.tf-auth-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .tf-account .tf-error { flex-basis: 100%; margin: 0; }
 
 .tf-password-form {
@@ -337,7 +337,7 @@ html:has(.tf-account) {
   border: 1px solid var(--tf-border);
   border-radius: 8px;
   color: var(--tf-muted);
-  background: #f6f8fe;
+  background: var(--tf-info-panel);
 }
 
 .tf-notifications {
@@ -355,8 +355,8 @@ html:has(.tf-account) {
 .tf-notification-bell span {
   padding: 1px 5px;
   border-radius: 12px;
-  background: #a61f39;
-  color: #fff;
+  background: var(--tf-unread-counter);
+  color: var(--tf-on-accent);
   font-size: 0.75rem;
 }
 
@@ -370,7 +370,7 @@ html:has(.tf-account) {
   padding: 12px;
   border: 1px solid var(--tf-border);
   border-radius: 12px;
-  background: #fff;
+  background: var(--tf-surface);
   color: var(--tf-text);
   box-shadow: var(--tf-popover-shadow);
 }
@@ -387,8 +387,8 @@ html:has(.tf-account) {
 #notification-inbox ul { margin: 8px 0; padding: 0; list-style: none; }
 #notification-inbox .tf-status { margin-block: 8px; }
 #notification-inbox li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px; }
-#notification-inbox li[data-unread="true"] { background: #eaf1ff; }
-#notification-inbox li + li { border-top: 1px solid #dbe4f3; }
+#notification-inbox li[data-unread="true"] { background: var(--tf-info-highlight); }
+#notification-inbox li + li { border-top: 1px solid var(--tf-info-border); }
 
 #notification-inbox .tf-notification-target {
   flex: 1 1 8rem;
@@ -428,11 +428,11 @@ html:has(.tf-account) {
   padding: 14px 16px;
   border: 1px solid var(--tf-border);
   border-radius: 12px;
-  background: #f6f8fe;
+  background: var(--tf-info-panel);
 }
 
-.tf-metrics > div:nth-child(4) { background: #fff4f4; }
-.tf-metrics > div:nth-child(5) { background: #fff8e8; }
+.tf-metrics > div:nth-child(4) { background: var(--tf-danger-panel); }
+.tf-metrics > div:nth-child(5) { background: var(--tf-warning-panel); }
 .tf-metrics dt { color: var(--tf-muted); font-weight: 650; }
 
 .tf-metrics dd {
@@ -563,8 +563,8 @@ html:has(.tf-account) {
 .tf-projects-heading h2 span {
   padding: 4px 9px;
   border-radius: 999px;
-  color: #2147a0;
-  background: #e5edff;
+  color: var(--tf-info-text);
+  background: var(--tf-info-fill);
   font-size: 0.875rem;
   vertical-align: middle;
 }
@@ -603,7 +603,7 @@ html:has(.tf-account) {
   padding: clamp(12px, 2vw, 20px);
   border: 1px solid var(--tf-border);
   border-radius: 12px;
-  background: #f6f8fe;
+  background: var(--tf-info-panel);
 }
 
 .tf-project-stats h4 { margin: 0; }
@@ -629,7 +629,7 @@ html:has(.tf-account) {
   padding: 14px;
   border: 1px solid var(--tf-border);
   border-radius: 10px;
-  background: #fff;
+  background: var(--tf-surface);
 }
 
 .tf-stats-card h5 { margin: 0; font-size: 0.9375rem; }
@@ -690,7 +690,7 @@ html:has(.tf-account) {
   height: 6px;
   overflow: hidden;
   border-radius: 999px;
-  background: #e2e8f0;
+  background: var(--tf-track);
 }
 
 .tf-stats-track span {
@@ -704,7 +704,7 @@ html:has(.tf-account) {
   padding: 12px 16px;
   border: 1px solid var(--tf-border);
   border-radius: 12px;
-  background: #f6f8fe;
+  background: var(--tf-info-panel);
 }
 
 .tf-project-activities summary { cursor: pointer; font-weight: 700; }
@@ -792,8 +792,8 @@ html:has(.tf-account) {
   background: var(--tf-subtle);
 }
 
-.tf-column[data-status="IN_PROGRESS"] { background: #f8f5eb; }
-.tf-column[data-status="DONE"] { background: #edf5ee; }
+.tf-column[data-status="IN_PROGRESS"] { background: var(--tf-board-progress); }
+.tf-column[data-status="DONE"] { background: var(--tf-board-done); }
 
 .tf-board .tf-column[data-drop-target="true"] {
   border: 1px dashed var(--tf-blue);
@@ -814,9 +814,9 @@ html:has(.tf-account) {
   padding: 12px;
   margin-bottom: 10px;
   border: 1px solid var(--tf-border);
-  border-inline-start: 3px solid #64748b;
+  border-inline-start: 3px solid var(--tf-status-todo);
   border-radius: 9px;
-  background: #fff;
+  background: var(--tf-surface);
   box-shadow: var(--tf-shadow);
 }
 
@@ -861,7 +861,7 @@ html:has(.tf-account) {
   padding: 8px;
   border: 1px solid var(--tf-border);
   border-radius: 8px;
-  background: #f8faff;
+  background: var(--tf-info-surface);
   overflow-wrap: anywhere;
 }
 
@@ -888,7 +888,7 @@ html:has(.tf-account) {
 .tf-task-comments .tf-comment-branch {
   margin: 8px 0 0 clamp(4px, 2vw, 16px);
   padding-inline-start: clamp(8px, 2vw, 12px);
-  border-inline-start: 2px solid #a9bce9;
+  border-inline-start: 2px solid var(--tf-info-line);
   min-width: 0;
 }
 
@@ -896,7 +896,7 @@ html:has(.tf-account) {
 .tf-task-comments .tf-comment-replies[hidden] { display: none; }
 .tf-task-comments .tf-comment-replies > li {
   position: relative;
-  background: #fff;
+  background: var(--tf-surface);
 }
 
 .tf-comment-replies > li::before {
@@ -905,7 +905,7 @@ html:has(.tf-account) {
   inset-block-start: 16px;
   inset-inline-end: 100%;
   inline-size: clamp(8px, 2vw, 12px);
-  border-block-start: 2px solid #a9bce9;
+  border-block-start: 2px solid var(--tf-info-line);
 }
 
 .tf-comment-reply-label {
@@ -913,7 +913,7 @@ html:has(.tf-account) {
   margin-inline-end: 6px;
   padding-inline: 5px;
   border-radius: 4px;
-  background: #eaf0fb;
+  background: var(--tf-mention-fill);
   color: var(--tf-blue);
   font-size: 0.75rem;
   font-weight: 600;
@@ -972,8 +972,8 @@ html:has(.tf-account) {
 
 .tf-date,
 .tf-count {
-  color: #344760;
-  background: #e6edf6;
+  color: var(--tf-tag-text);
+  background: var(--tf-tag-fill);
   font-variant-numeric: tabular-nums;
 }
 
@@ -994,7 +994,7 @@ html:has(.tf-account) {
 .tf-task-form {
   border: 1px solid var(--tf-border);
   border-radius: 12px;
-  background: #f8faff;
+  background: var(--tf-info-surface);
 }
 
 .tf-task-form {
@@ -1004,10 +1004,10 @@ html:has(.tf-account) {
 
 .tf-error {
   padding: 10px 14px;
-  border: 1px solid #edc4c9;
+  border: 1px solid var(--tf-danger-border);
   border-radius: 8px;
-  color: #9d2330;
-  background: #fff4f4;
+  color: var(--tf-danger-text);
+  background: var(--tf-danger-panel);
 }
 
 .tf-inbox {
@@ -1019,7 +1019,7 @@ html:has(.tf-account) {
   padding: 14px;
   border: 1px solid var(--tf-border);
   border-radius: 12px;
-  background: #f8faff;
+  background: var(--tf-info-surface);
 }
 
 .tf-collaboration h4 {
@@ -1043,7 +1043,7 @@ html:has(.tf-account) {
   padding: 8px 12px;
   border: 1px solid var(--tf-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--tf-surface);
 }
 
 .tf-collaboration-actions,

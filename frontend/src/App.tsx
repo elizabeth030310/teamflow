@@ -1052,7 +1052,7 @@ function App({ userId, onSessionExpired }: {
                 aria-hidden="true"
                 title="카드를 드래그해서 이동하세요"
                 style={{
-                  color: '#94a3b8',
+                  color: 'var(--tf-muted)',
                   fontSize: '18px',
                   cursor: 'grab',
                 }}
@@ -1504,7 +1504,7 @@ function App({ userId, onSessionExpired }: {
                         height: '10px',
                         marginTop: '6px',
                         borderRadius: '6px',
-                        backgroundColor: '#e2e8f0',
+                        backgroundColor: 'var(--tf-track)',
                         overflow: 'hidden',
                       }}
                     >
@@ -1792,7 +1792,7 @@ function App({ userId, onSessionExpired }: {
                         style={{
                           marginTop: '24px',
                           paddingTop: '20px',
-                          borderTop: '1px solid #e2e8f0',
+                          borderTop: '1px solid var(--tf-track)',
                         }}
                       >
                         <h3 id={`board-title-${project.id}`}>

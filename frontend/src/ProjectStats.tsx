@@ -49,7 +49,7 @@ export default function ProjectStats({
     key: status, label, color, count: stats.statusCounts.get(status) ?? 0,
   }))
   if (stats.otherStatuses > 0) {
-    statusRows.push({ key: 'OTHER', label: '기타', color: '#475569', count: stats.otherStatuses })
+    statusRows.push({ key: 'OTHER', label: '기타', color: 'var(--tf-status-other)', count: stats.otherStatuses })
   }
   const priorityRows = priorities.map(({ value, label, color }) => ({
     key: value, label, color, count: stats.priorityCounts.get(value) ?? 0,
@@ -59,7 +59,7 @@ export default function ProjectStats({
       key: assignee ?? 'unassigned',
       label: assignee === null ? '미배정' : memberNames.get(assignee) ?? `사용자 #${assignee}`,
       count,
-      color: assignee === null ? '#64748b' : '#2563eb',
+      color: assignee === null ? 'var(--tf-status-todo)' : 'var(--tf-status-progress)',
     }))
     .sort((first, second) => second.count - first.count || first.label.localeCompare(second.label, 'ko'))
 

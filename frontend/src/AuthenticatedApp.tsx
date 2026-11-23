@@ -4,6 +4,7 @@ import type { FormEvent } from 'react'
 import App from './App'
 import AdminDashboard from './AdminDashboard'
 import AuthPage from './AuthPage'
+import ThemeSelect from './ThemeSelect'
 import type { User } from './authUser'
 import { adminHref, dashboardHref } from './workspaceRoute'
 
@@ -186,6 +187,7 @@ function AuthenticatedApp() {
     <>
       <header className="tf-app tf-account" ref={trackAccountHeader}>
         <span><strong>{user.name}</strong>님, 환영합니다!</span>
+        <ThemeSelect />
         <button
           type="button"
           aria-expanded={passwordFormOpen}

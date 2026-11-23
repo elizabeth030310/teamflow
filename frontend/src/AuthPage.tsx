@@ -1,6 +1,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
+import ThemeSelect from './ThemeSelect.tsx'
 import type { User } from './authUser'
 
 type AuthPageProps = {
@@ -161,7 +162,10 @@ function AuthPage({ onLogin, connectionError, loginNotice }: AuthPageProps) {
   return (
     <main className="tf-app tf-auth">
       <section className="tf-panel" aria-labelledby="auth-title">
-        <h1>TeamFlow</h1>
+        <header className="tf-auth-heading">
+          <h1>TeamFlow</h1>
+          <ThemeSelect />
+        </header>
         <p className="tf-auth-intro">팀 프로젝트를 한곳에서 관리하세요</p>
         <h2 id="auth-title">{isSignup ? '회원가입' : '로그인'}</h2>
         {!isSignup && !message && loginNotice && <p className="tf-status" role="status">{loginNotice}</p>}

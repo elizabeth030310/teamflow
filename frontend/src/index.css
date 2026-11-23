@@ -1,11 +1,73 @@
+:root {
+  --tf-text: light-dark(#242923, #e7ebe5);
+  --tf-muted: light-dark(#565f56, #b2bdb2);
+  --tf-border: light-dark(#e0e4dc, #3b463d);
+  --tf-control-border: light-dark(#8b958a, #778879);
+  --tf-accent: light-dark(#285944, #a0cdb1);
+  --tf-accent-fill: light-dark(#285944, #427258);
+  --tf-accent-hover: light-dark(#1d4534, #487b60);
+  --tf-on-accent: #fff;
+  --tf-active: light-dark(#e5f0e8, #2b4335);
+  --tf-surface: light-dark(#fff, #202622);
+  --tf-subtle: light-dark(#f6f7f3, #282f2a);
+  --tf-info-panel: light-dark(#f6f8fe, #262f37);
+  --tf-info-surface: light-dark(#f8faff, #252d34);
+  --tf-info-highlight: light-dark(#eaf1ff, #303f50);
+  --tf-info-border: light-dark(#dbe4f3, #405064);
+  --tf-info-line: light-dark(#a9bce9, #6883a3);
+  --tf-info-text: light-dark(#2147a0, #b6d0ff);
+  --tf-info-fill: light-dark(#e5edff, #2e4059);
+  --tf-tag-text: light-dark(#344760, #c8d7e9);
+  --tf-tag-fill: light-dark(#e6edf6, #354350);
+  --tf-mention-fill: light-dark(#eaf0fb, #303d4d);
+  --tf-track: light-dark(#e2e8f0, #39443f);
+  --tf-danger-text: light-dark(#9d2330, #ffb6be);
+  --tf-danger-border: light-dark(#edc4c9, #85545b);
+  --tf-danger-surface: light-dark(#fff8f8, #36262a);
+  --tf-danger-panel: light-dark(#fff4f4, #3a272b);
+  --tf-danger-hover: light-dark(#fce5e8, #52343b);
+  --tf-unread-counter: light-dark(#a61f39, #a6324c);
+  --tf-warning-panel: light-dark(#fff8e8, #383020);
+  --tf-board-progress: light-dark(#f8f5eb, #2e2d23);
+  --tf-board-done: light-dark(#edf5ee, #25342a);
+  --tf-status-todo: light-dark(#64748b, #aabaca);
+  --tf-status-progress: light-dark(#2563eb, #9abaff);
+  --tf-status-done: light-dark(#15803d, #9dd0aa);
+  --tf-status-other: light-dark(#475569, #b7bbc4);
+  --tf-priority-high: light-dark(#b91c1c, #ffb4ba);
+  --tf-priority-high-fill: light-dark(#fee2e2, #4b2d34);
+  --tf-priority-medium: light-dark(#b45309, #f3c779);
+  --tf-priority-medium-fill: light-dark(#fef3c7, #46371f);
+  --tf-priority-low: light-dark(#15803d, #aadead);
+  --tf-priority-low-fill: light-dark(#dcfce7, #263f2d);
+  --tf-overdue: light-dark(#991b1b, #ffb4ba);
+  --tf-due-today: light-dark(#9a3412, #ffc39e);
+  --tf-due-today-fill: light-dark(#ffedd5, #4b3227);
+  --tf-due-upcoming: light-dark(#854d0e, #efcf83);
+  --tf-due-upcoming-fill: light-dark(#fef9c3, #40361f);
+  --tf-blue: var(--tf-accent);
+  --tf-radius: 9px;
+  --tf-shadow: 0 1px 2px light-dark(rgb(28 37 28 / 7%), rgb(0 0 0 / 24%));
+  --tf-popover-shadow: 0 12px 36px light-dark(rgb(28 37 28 / 15%), rgb(0 0 0 / 42%));
+  --tf-pad: clamp(16px, 2.7vw, 36px);
+}
+
 * {
   box-sizing: border-box;
 }
 
 body {
   margin: 0;
+  color: var(--tf-text);
   font-family: Arial, sans-serif;
 }
+
+::selection {
+  color: var(--tf-text);
+  background: light-dark(#cfe5d5, #3b604a);
+}
+
+a { color: var(--tf-accent); }
 
 #root {
   min-height: 100vh;

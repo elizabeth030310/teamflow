@@ -65,7 +65,7 @@
   border: 1px solid var(--tf-border);
   border-radius: 8px;
   background: var(--tf-surface);
-  box-shadow: 0 6px 18px rgb(0 0 0 / 12%);
+  box-shadow: var(--tf-popover-shadow);
 }
 .tf-page-action-panel button { text-align: start; }
 .tf-page-action-panel p { margin: 4px; }
@@ -106,7 +106,7 @@
   border: 1px solid var(--tf-border);
   border-radius: 8px;
   background: var(--tf-surface);
-  box-shadow: 0 2px 4px rgb(28 37 28 / 5%), 0 8px 24px rgb(28 37 28 / 9%);
+  box-shadow: var(--tf-popover-shadow);
 }
 .tf-rich-block-options {
   position: fixed;

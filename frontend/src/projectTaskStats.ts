@@ -2,15 +2,15 @@ import type { Task } from './projectTaskSync.ts'
 import { getDueDateAlert } from './taskDates.ts'
 
 export const columns = [
-  { status: 'TODO', label: '할 일', color: '#64748b' },
-  { status: 'IN_PROGRESS', label: '진행 중', color: '#2563eb' },
-  { status: 'DONE', label: '완료', color: '#15803d' },
+  { status: 'TODO', label: '할 일', color: 'var(--tf-status-todo)' },
+  { status: 'IN_PROGRESS', label: '진행 중', color: 'var(--tf-status-progress)' },
+  { status: 'DONE', label: '완료', color: 'var(--tf-status-done)' },
 ]
 
 export const priorities = [
-  { value: 'HIGH', label: '높음', color: '#dc2626', background: '#fee2e2' },
-  { value: 'MEDIUM', label: '보통', color: '#b45309', background: '#fef3c7' },
-  { value: 'LOW', label: '낮음', color: '#15803d', background: '#dcfce7' },
+  { value: 'HIGH', label: '높음', color: 'var(--tf-priority-high)', background: 'var(--tf-priority-high-fill)' },
+  { value: 'MEDIUM', label: '보통', color: 'var(--tf-priority-medium)', background: 'var(--tf-priority-medium-fill)' },
+  { value: 'LOW', label: '낮음', color: 'var(--tf-priority-low)', background: 'var(--tf-priority-low-fill)' },
 ]
 
 export const getPriority = (priority: string | null) =>

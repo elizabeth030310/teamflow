@@ -4,6 +4,24 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <script>
+      try {
+        const theme = localStorage.getItem('teamflow:theme')
+        if (theme === 'light' || theme === 'dark') {
+          document.documentElement.dataset.theme = theme
+        }
+      } catch {}
+    </script>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --tf-canvas: light-dark(#fafbf8, #161a17);
+        background: var(--tf-canvas);
+      }
+      :root[data-theme='light'] { color-scheme: light; }
+      :root[data-theme='dark'] { color-scheme: dark; }
+    </style>
     <title>TeamFlow</title>
   </head>
   <body>
