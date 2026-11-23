@@ -1,6 +1,6 @@
 # TeamFlow 공개 HTTPS 배포 준비
 
-2026-11-23 기준. Render Free Web Service 하나에 React와 Nginx, Spring Boot를 배치하고, Neon Free PostgreSQL 16과 Brevo Free를 연결하는 포트폴리오 구성을 검토한다. 플랫폼 기본 HTTPS 주소를 사용한다. 낮은 트래픽과 콜드 스타트를 감수하는 조건으로 월 0원을 목표로 한다.
+2026-11-23 기준. Render Free Web Service 하나에 React와 Nginx, Spring Boot를 배치하고, Neon Free PostgreSQL 18과 Brevo Free를 연결하는 포트폴리오 구성을 검토한다. 플랫폼 기본 HTTPS 주소를 사용한다. 낮은 트래픽과 콜드 스타트를 감수하는 조건으로 월 0원을 목표로 한다.
 
 ## 무료 옵션
 
@@ -16,16 +16,46 @@
 
 - Docker 빌드 컨텍스트는 저장소 루트, Dockerfile은 `deploy/render/Dockerfile`이다. 컨테이너의 `PORT`는 기본 10000, Spring은 루프백 8081에만 연결한다. `/healthz`는 Spring이 수신을 시작한 뒤 열린다. 배포 화면에서는 Free, 자동 배포 끔, `/healthz`를 선택할 예정이다. GitHub Desktop은 Git 작업에 사용한다.
 - React와 `/api`를 같은 HTTPS 주소로 제공한다. 기존 `Secure`, `HttpOnly`, `SameSite=Lax`와 `X-TeamFlow-Request` 및 동일 출처 검사에 의한 CSRF 방어를 유지한다. CORS 허용을 추가하지 않는다. Render가 덮어쓰는 `CF-Connecting-IP`만 클라이언트 IP 입력으로 사용한다. 로컬 신뢰 경계는 루프백이고 실제 Render에서 위조 헤더가 통과하지 않는지도 확인한다. 앱 재시작 시 메모리 로그인 세션은 다시 로그인해야 한다. [Render 헤더 동작](https://render.com/articles/host-pocketbase-on-render)
-- 신규 전용 PostgreSQL 16 프로젝트에 `teamflow_public` DB를 만들고, DB 소유자와 런타임 역할을 분리한다. SQL로 `CREATE ROLE teamflow_public_app LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;` 실행 후 `psql`의 `\password teamflow_public_app`으로 비밀번호를 설정한다. 콘솔로 만든 Neon 역할의 상속 권한을 앱에 주지 않는다. 초기화 SQL은 아래 PowerShell 명령으로 생성한다. 생성된 SQL을 검토한 뒤 새 DB의 소유자로만 실행한다. 기존 로컬 DB는 대상이 아니다.
-
-```powershell
-& .\deploy\render\New-BootstrapSql.ps1 | Set-Content -Encoding ASCII .\teamflow-public-bootstrap.sql
-```
-
-- `TEAMFLOW_PROD_DB_HOST`에는 직접 연결 DNS 이름, `TEAMFLOW_PROD_DB_NAME`에는 `teamflow_public`, `TEAMFLOW_PROD_DB_USER`에는 `teamflow_public_app`을 사용한다. `TEAMFLOW_PROD_DB_PASSWORD`는 호스팅 환경의 비밀 설정에 저장한다. `prod`의 `verify-full`과 컨테이너 CA 묶음으로 인증서와 호스트를 검증한다. 포트 기본값은 5432다. Hibernate `validate`를 유지하고 런타임 역할이 DDL이나 관리자 승격을 실행할 수 없는지 점검한다. PostgreSQL과 첨부를 별도로 백업하고 실제 복구를 시험한다. [pgJDBC TLS](https://jdbc.postgresql.org/documentation/ssl/)
+- 신규 Neon DB는 아래의 **Neon PostgreSQL 18 초기화** 순서로 준비한다.
+- `TEAMFLOW_PROD_DB_HOST`에는 직접 연결 DNS 이름, `TEAMFLOW_PROD_DB_NAME`에는 `neondb`, `TEAMFLOW_PROD_DB_USER`에는 `teamflow_public_app`을 사용한다. `TEAMFLOW_PROD_DB_PASSWORD`는 호스팅 환경의 비밀 설정에 저장한다. `prod`의 `verify-full`과 컨테이너 CA 묶음으로 인증서와 호스트를 검증한다. 포트 기본값은 5432다. Hibernate `validate`를 유지하고 런타임 역할이 DDL이나 관리자 승격을 실행할 수 없는지 점검한다. PostgreSQL과 첨부를 별도로 백업하고 실제 복구를 시험한다. [pgJDBC TLS](https://jdbc.postgresql.org/documentation/ssl/)
 - 기존 가입은 메일 인증이 필수다. Brevo Free 300통/일과 SMTP `2525`의 STARTTLS를 검증한다. Render Free는 25·465·587을 막는다. `TEAMFLOW_SMTP_HOST`, `TEAMFLOW_SMTP_PORT`, `TEAMFLOW_SMTP_FROM`, `TEAMFLOW_SMTP_USERNAME`, `TEAMFLOW_SMTP_PASSWORD`, `TEAMFLOW_SIGNUP_HMAC_KEY`를 호스팅 비밀 설정에서 관리한다. 소유 도메인이 없으면 Brevo의 발신 주소 재작성 및 실제 수신을 검증한다. 2525가 막힐 경우 가입 인증을 유지하면서 HTTPS 메일 API를 별도 적용한다. [메일 한도](https://help.brevo.com/hc/en-us/articles/208589409-About-Brevo-s-pricing-plans) · [SMTP 포트](https://help.brevo.com/hc/en-us/articles/10905415650322-Which-SMTP-port-should-I-use-Port-587-465-or-2525) · [발신 주소](https://help.brevo.com/hc/en-us/articles/16045394674066-Troubleshooting-Domain-authentication)
 - 첫 버전에서 첨부 파일 업로드를 비활성화한다. 앱의 상세 페이지에 저장되는 콘텐츠도 DB 용량을 사용한다. 첨부가 필요하면 Neon의 비공개 객체 저장소 5GB를 후보로 두고 권한, 업로드·다운로드·삭제, DB 백업과 파일 복구를 함께 구현·검증한다. [Neon 요금](https://neon.com/pricing)
 - 마감 알림 배치가 실행 중 매분 DB에 접근한다. Hikari 유휴 연결 수를 줄여도 이 쿼리가 Neon 절전을 막을 수 있다. 이용량이 늘기 전에 배치를 요청 기반으로 바꾸거나 실행 간격을 조정하고, 알림 지연과 실제 CU 시간을 함께 확인한다.
+
+## Neon PostgreSQL 18 초기화
+
+1. Neon SQL Editor에서 프로젝트 `teamflow`, 브랜치 `production`, DB `neondb`를 선택한다. 아래 읽기 전용 조회에서 연결된 역할이 DB 소유자(보통 `neondb_owner`)이고, DB 이름이 `neondb`, 메이저 버전이 `18`이며 세 불리언 열이 모두 `true`일 때만 다음 단계로 간다. [Neon SQL Editor](https://neon.com/docs/get-started/query-with-neon-sql-editor)
+
+   ```sql
+   SELECT current_database() AS db, current_user AS connected_role,
+          current_setting('server_version_num')::integer / 10000 AS pg_major,
+          datdba = current_user::regrole AS is_owner,
+          NOT EXISTS (
+              SELECT FROM pg_catalog.pg_depend
+              WHERE refclassid = 'pg_catalog.pg_namespace'::pg_catalog.regclass
+                AND refobjid = 'public'::pg_catalog.regnamespace
+                AND classid <> 'pg_catalog.pg_default_acl'::pg_catalog.regclass
+          ) AS public_empty,
+          to_regrole('teamflow_public_app') IS NULL AS app_role_missing
+   FROM pg_database WHERE datname = current_database();
+   ```
+
+2. 같은 설정에서 `CREATE ROLE teamflow_public_app LOGIN NOINHERIT;`만 따로 실행한다. SQL로 만든 역할에는 Neon 관리 역할이 자동 부여되지 않는다. [Neon 역할 관리](https://neon.com/docs/manage/roles)
+3. 저장소 루트에서 아래 명령으로 파일을 만든다. 파일 전체를 같은 SQL Editor에 붙여 넣고 한 번에 실행한다. 오류가 나면 원인을 확인하고 멈춘다. 초기화는 빈 스키마에서 한 번만 실행하며 앱 역할에 필요한 테이블·열 권한을 부여한다.
+
+   ```powershell
+   & .\deploy\render\New-BootstrapSql.ps1 -Neon | Set-Content -Encoding UTF8 (Join-Path $env:TEMP 'teamflow-neon-bootstrap.sql')
+   ```
+
+4. 아래 조회 결과는 `14`여야 한다. 배포 시 자격 증명이 필요하면 같은 브랜치의 **Roles**에서 기존 `teamflow_public_app`의 **Reset password**로 생성하고 비밀 설정에만 저장한다. [Neon 비밀번호 재설정](https://neon.com/docs/manage/roles#reset-a-password)
+
+   ```sql
+   SELECT count(*) AS teamflow_tables
+   FROM information_schema.tables
+   WHERE table_schema = 'public' AND table_type = 'BASE TABLE';
+   ```
+
+옵션 없이 생성하면 기존 `psql`용 PostgreSQL 16 `teamflow_public` 초기화 SQL을 출력한다.
 
 ## 승인 뒤 확인할 항목
 
