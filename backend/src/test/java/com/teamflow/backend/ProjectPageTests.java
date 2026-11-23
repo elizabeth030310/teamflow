@@ -17,7 +17,9 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.WebApplicationContext;
+import tools.jackson.databind.ObjectMapper;
 
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,7 +30,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @IsolatedSpringBootTest
-@Sql(scripts = "file:db/193-a-project-pages.sql", executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
+@Sql(scripts = {"file:db/193-a-project-pages.sql", "file:db/193-d-project-page-content-format.sql"},
+        executionPhase = Sql.ExecutionPhase.BEFORE_TEST_CLASS)
 @Transactional
 class ProjectPageTests {
 
@@ -37,6 +40,7 @@ class ProjectPageTests {
     @Autowired private ProjectRepository projects;
     @Autowired private ProjectMemberRepository members;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private ObjectMapper json;
 
     private MockMvc mvc;
     private User owner;
@@ -80,6 +84,32 @@ class ProjectPageTests {
             mvc.perform(as(delete(pages + "/{id}", pageId), owner)).andExpect(status().isNoContent());
             mvc.perform(as(get(pages + "/{id}", pageId), owner)).andExpect(status().isNotFound());
         }
+    }
+
+    @Test
+    void retainsPlainContentAndSavesLargerRichContentWithRevisionCheck() throws Exception {
+        String legacy = "  첫 줄\r\n\n<em>본문</em>\n";
+        jdbc.update("INSERT INTO project_pages (project_id, title, content) VALUES (?, ?, ?)",
+                project.getId(), "Legacy", legacy);
+        long pageId = jdbc.queryForObject("SELECT id FROM project_pages WHERE project_id = ? AND title = 'Legacy'",
+                Long.class, project.getId());
+        String snapshot = mvc.perform(as(get(pages + "/{id}", pageId), owner))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").value(legacy))
+                .andExpect(jsonPath("$.contentFormat").value("plain"))
+                .andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        String revision = json.readTree(snapshot).get("updatedAt").asString();
+        String rich = json.writeValueAsString(Map.of("type", "doc", "content", java.util.List.of(
+                Map.of("type", "paragraph", "content", java.util.List.of(
+                        Map.of("type", "text", "text", "x".repeat(100000)))))));
+        String update = json.writeValueAsString(Map.of("title", "Legacy", "content", rich,
+                "contentFormat", "rich-v1", "expectedUpdatedAt", revision));
+        mvc.perform(as(put(pages + "/{id}", pageId), owner).contentType("application/json").content(update))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.contentFormat").value("rich-v1"));
+        mvc.perform(as(put(pages + "/{id}", pageId), owner).contentType("application/json").content(update))
+                .andExpect(status().isConflict());
+        mvc.perform(as(get(pages + "/{id}", pageId), owner)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").value(rich));
     }
 
     @Test

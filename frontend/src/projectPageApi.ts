@@ -5,14 +5,16 @@ export type PageSummary = {
 }
 
 export type PageTreeEntry = PageSummary & { depth: number }
+export type PageContentFormat = 'plain' | 'rich-v1'
 export type ProjectPage = PageSummary & {
   projectId: number
   content: string
+  contentFormat?: PageContentFormat
   createdAt: string
   updatedAt: string
 }
 
-type PageInput = Pick<ProjectPage, 'parentPageId' | 'title' | 'content'>
+type PageInput = Pick<ProjectPage, 'parentPageId' | 'title' | 'content' | 'contentFormat'> & { expectedUpdatedAt?: string }
 
 export class PageRequestError extends Error {
   readonly status: number
@@ -47,15 +49,17 @@ export function projectPageApi(projectId: number, signal: AbortSignal) {
     get,
     create: async (input: PageInput): Promise<ProjectPage> => (await request('', 'POST', input)).json(),
     rename: async (pageId: number, title: string): Promise<ProjectPage> => {
-      const { parentPageId, content } = await get(pageId)
-      return (await request(`/${pageId}`, 'PUT', { parentPageId, title, content })).json()
+      const { parentPageId, content, contentFormat, updatedAt } = await get(pageId)
+      return (await request(`/${pageId}`, 'PUT', { parentPageId, title, content, contentFormat, expectedUpdatedAt: updatedAt })).json()
     },
-    saveContent: async (pageId: number, content: string, baseContent: string): Promise<ProjectPage> => {
+    saveContent: async (pageId: number, content: string, baseContent: string,
+      contentFormat?: PageContentFormat, baseContentFormat?: PageContentFormat): Promise<ProjectPage> => {
       const page = await get(pageId)
-      if (page.content === content) return page
-      if (page.content !== baseContent) throw new PageRequestError(409)
-      const { parentPageId, title } = page
-      return (await request(`/${pageId}`, 'PUT', { parentPageId, title, content })).json()
+      const format = page.contentFormat ?? 'plain'
+      if (page.content === content && format === (contentFormat ?? 'plain')) return page
+      if (page.content !== baseContent || format !== (baseContentFormat ?? 'plain')) throw new PageRequestError(409)
+      const { parentPageId, title, updatedAt } = page
+      return (await request(`/${pageId}`, 'PUT', { parentPageId, title, content, contentFormat, expectedUpdatedAt: updatedAt })).json()
     },
     remove: async (pageId: number) => { await request(`/${pageId}`, 'DELETE') },
   }

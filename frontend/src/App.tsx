@@ -22,6 +22,8 @@ import { dueDateAlerts, getDueDateAlert, getLocalCalendarDay, showDatePicker } f
 import { dashboardHref, myTasksHref, projectHref, projectTabHref, projectTabs, readWorkspaceRoute } from './workspaceRoute'
 import './TeamFlow.css'
 
+const compactWorkspaceQuery = '(max-width: 760px)'
+
 type Project = {
   id: number
   name: string
@@ -36,7 +38,14 @@ function App({ userId, onSessionExpired }: {
 }) {
   const [projects, setProjects] = useState<Project[]>([])
   const [workspaceHash, setWorkspaceHash] = useState(() => window.location.hash)
-  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [compactWorkspace, setCompactWorkspace] = useState(() => window.matchMedia(compactWorkspaceQuery).matches)
+  const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true)
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+  const sidebarOpen = compactWorkspace ? mobileSidebarOpen : desktopSidebarOpen
+  const sidebarToggle = useRef<HTMLButtonElement>(null)
+  const workspaceContent = useRef<HTMLElement>(null)
+  const [pageWorkspace, setPageWorkspace] = useState<HTMLDivElement | null>(null)
+  const [openDocumentProjects, setOpenDocumentProjects] = useState(new Map<number, boolean>())
   const favoriteStorageKey = `teamflow:project-favorites:${userId}`
   const [favoriteProjectIds, setFavoriteProjectIds] = useState(() => readFavoriteProjects(favoriteStorageKey))
   const route = readWorkspaceRoute(workspaceHash)
@@ -110,10 +119,20 @@ function App({ userId, onSessionExpired }: {
   useEffect(() => {
     const updateRoute = () => {
       setWorkspaceHash(window.location.hash)
-      setSidebarOpen(false)
+      setMobileSidebarOpen(false)
     }
     window.addEventListener('hashchange', updateRoute)
     return () => window.removeEventListener('hashchange', updateRoute)
+  }, [])
+
+  useEffect(() => {
+    const media = window.matchMedia(compactWorkspaceQuery)
+    const updateLayout = () => {
+      setCompactWorkspace(media.matches)
+      setMobileSidebarOpen(false)
+    }
+    media.addEventListener('change', updateLayout)
+    return () => media.removeEventListener('change', updateLayout)
   }, [])
 
   useEffect(() => {
@@ -1303,22 +1322,56 @@ function App({ userId, onSessionExpired }: {
     />
   )
 
+  function followSidebarLink() {
+    if (!compactWorkspace) return
+    setMobileSidebarOpen(false)
+    workspaceContent.current?.focus()
+  }
+
+  function openProjectPages(projectId: number) {
+    const href = projectTabHref(projectId, 'pages')
+    if (window.location.hash !== href) window.location.assign(href)
+    followSidebarLink()
+  }
+
   return (
-    <div className="tf-app tf-workspace">
-      <button
-        type="button"
-        className="tf-sidebar-toggle"
-        aria-controls="workspace-sidebar"
-        aria-expanded={sidebarOpen}
-        onClick={() => setSidebarOpen((previous) => !previous)}
-      >
-        {sidebarOpen ? '메뉴 닫기' : '메뉴 열기'}
-      </button>
-      <nav id="workspace-sidebar" className="tf-sidebar" aria-label="워크스페이스" data-open={sidebarOpen}>
-        <a href={dashboardHref} aria-current={isDashboard ? 'page' : undefined} onClick={() => setSidebarOpen(false)}>
+    <div className="tf-app tf-workspace" data-sidebar-open={sidebarOpen}>
+      <header className="tf-workspace-bar">
+        <a className="tf-skip-link" href="#workspace-content" onClick={(event) => {
+          event.preventDefault()
+          workspaceContent.current?.focus()
+        }}>본문으로 건너뛰기</a>
+        <button
+          ref={sidebarToggle}
+          type="button"
+          className="tf-sidebar-toggle"
+          aria-controls="workspace-sidebar"
+          aria-expanded={sidebarOpen}
+          aria-label={sidebarOpen ? '사이드바 접기' : '사이드바 펼치기'}
+          onClick={() => compactWorkspace
+            ? setMobileSidebarOpen((previous) => !previous)
+            : setDesktopSidebarOpen((previous) => !previous)}
+        >
+          <span className="tf-sidebar-icon" aria-hidden="true" />
+        </button>
+        <a className="tf-brand" href={dashboardHref}>
+          <span aria-hidden="true">T</span>
+          TeamFlow
+        </a>
+        <NotificationCenter key={userId} onOpenTask={openNotificationTask} onSessionExpired={onSessionExpired} />
+      </header>
+      <nav id="workspace-sidebar" className="tf-sidebar" aria-label="워크스페이스" hidden={!sidebarOpen} onKeyDown={(event) => {
+        if (event.key !== 'Escape' || event.defaultPrevented || !event.currentTarget.contains(event.target as Node)) return
+        event.preventDefault()
+        if (compactWorkspace) setMobileSidebarOpen(false)
+        else setDesktopSidebarOpen(false)
+        sidebarToggle.current?.focus()
+      }}>
+        <h2>워크스페이스</h2>
+        <a href={dashboardHref} aria-current={isDashboard ? 'page' : undefined} onClick={followSidebarLink}>
           대시보드
         </a>
-        <a href={myTasksHref} aria-current={isMyTasks ? 'page' : undefined} onClick={() => setSidebarOpen(false)}>
+        <a href={myTasksHref} aria-current={isMyTasks ? 'page' : undefined} onClick={followSidebarLink}>
           내 업무
         </a>
         <h2 id="sidebar-projects-title">프로젝트 <span>{projects.length}</span></h2>
@@ -1343,8 +1396,7 @@ function App({ userId, onSessionExpired }: {
                 <li key={project.id}>
                   <a
                     href={projectHref(project.id)}
-                    aria-current={project.id === route.projectId ? 'page' : undefined}
-                    onClick={() => setSidebarOpen(false)}
+                    onClick={followSidebarLink}
                   >
                     {project.name}
                   </a>
@@ -1354,50 +1406,64 @@ function App({ userId, onSessionExpired }: {
           </>
         )}
         <ul aria-labelledby="sidebar-projects-title">
-          {filteredProjects.map((project) => (
-            <li key={project.id} className="tf-sidebar-project">
-              <a
-                href={projectHref(project.id)}
-                aria-current={project.id === route.projectId ? 'page' : undefined}
-                onClick={() => setSidebarOpen(false)}
-              >
-                {project.name}
-              </a>
-              <button
-                type="button"
-                className="tf-favorite-toggle"
-                aria-label={`${project.name} 즐겨찾기`}
-                aria-pressed={favoriteProjectIds.has(project.id)}
-                onClick={() => setFavoriteProjectIds((previous) => {
-                  const next = new Set(previous)
-                  if (next.has(project.id)) next.delete(project.id)
-                  else next.add(project.id)
-                  return next
-                })}
-              >
-                <span aria-hidden="true">{favoriteProjectIds.has(project.id) ? '★' : '☆'}</span>
-              </button>
-            </li>
-          ))}
+          {projects.map((project) => {
+            const current = project.id === route.projectId
+            const active = current && projectTab === 'pages'
+            const open = openDocumentProjects.get(project.id) ?? current
+            const treeId = `tf-project-pages-${project.id}`
+            return (
+              <li key={project.id} className="tf-sidebar-project" hidden={!matchesProjectSearch(project.name)}>
+                <a
+                  href={projectHref(project.id)}
+                  aria-current={project.id === route.projectId && projectTab !== 'pages' ? 'page' : undefined}
+                  onClick={followSidebarLink}
+                >
+                  {project.name}
+                </a>
+                <button
+                  type="button"
+                  className="tf-favorite-toggle"
+                  aria-label={`${project.name} 즐겨찾기`}
+                  aria-pressed={favoriteProjectIds.has(project.id)}
+                  onClick={() => setFavoriteProjectIds((previous) => {
+                    const next = new Set(previous)
+                    if (next.has(project.id)) next.delete(project.id)
+                    else next.add(project.id)
+                    return next
+                  })}
+                >
+                  <span aria-hidden="true">{favoriteProjectIds.has(project.id) ? '★' : '☆'}</span>
+                </button>
+                <div className="tf-sidebar-documents">
+                  <button type="button" className="tf-page-tree-toggle" aria-label={`${project.name} 문서`}
+                    aria-expanded={open} aria-controls={treeId}
+                    onClick={() => setOpenDocumentProjects((previous) => new Map(previous).set(project.id, !open))}>
+                    <span aria-hidden="true">{open ? '▾' : '▸'}</span> 문서
+                  </button>
+                  <div id={treeId} hidden={!open}>
+                    {(open || active) && (
+                      <ProjectPages projectId={project.id} userId={userId} active={active}
+                        workspace={active ? pageWorkspace : null}
+                        onOpen={() => openProjectPages(project.id)} onSessionExpired={onSessionExpired} />
+                    )}
+                  </div>
+                </div>
+              </li>
+            )
+          })}
         </ul>
       </nav>
-      <main className="tf-workspace-content">
+      <main id="workspace-content" className="tf-workspace-content" ref={workspaceContent} tabIndex={-1}>
       <header className="tf-hero">
-        <NotificationCenter key={userId} onOpenTask={openNotificationTask} onSessionExpired={onSessionExpired} />
-        <h1>
-          TeamFlow
-        </h1>
-
-        <p>
-          팀 프로젝트와 작업을 한눈에 관리하세요.
-        </p>
+        {project && <a href={dashboardHref}>워크스페이스</a>}
+        <h1>{project?.name ?? workspaceTitle}</h1>
       </header>
 
       {(isDashboard || dashboardStatus !== 'ready') && <section
         className="tf-dashboard"
         aria-labelledby="dashboard-title"
       >
-        <h2 id="dashboard-title" style={{ marginTop: 0 }}>{workspaceTitle}</h2>
+        <h2 id="dashboard-title">{isDashboard ? '업무 현황' : '워크스페이스 상태'}</h2>
         {dashboardStatus === 'loading' && <p className="tf-status" role="status">워크스페이스를 불러오는 중입니다.</p>}
         {dashboardStatus === 'error' && (
           <>
@@ -1652,13 +1718,7 @@ function App({ userId, onSessionExpired }: {
                       </>
                     ) : (
                       <>
-                        <h3 style={{ marginTop: 0 }}>
-                          {project.name}
-                        </h3>
-
-                        <p style={{ color: '#64748b' }}>
-                          {project.description}
-                        </p>
+                        {project.description && <p className="tf-project-description">{project.description}</p>}
 
                         {isOwner && (
                           <div
@@ -1711,8 +1771,7 @@ function App({ userId, onSessionExpired }: {
                     <>
                       <div hidden={projectTab !== 'calendar'}>{calendar}</div>
                       {projectTab === 'pages' && (
-                        <ProjectPages key={project.id} projectId={project.id} userId={userId}
-                          onSessionExpired={onSessionExpired} />
+                        <div ref={setPageWorkspace} data-project-id={project.id} />
                       )}
                       <div hidden={projectTab !== 'stats'}>
                         {dashboardStatus === 'ready' && (

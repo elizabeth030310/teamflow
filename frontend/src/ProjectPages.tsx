@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { expandPageAncestors, groupProjectPages, PageRequestError, projectPageApi, resolvePageSelection } from './projectPageApi'
 import type { PageTreeEntry, ProjectPage } from './projectPageApi'
-import ProjectPageEditor from './ProjectPageEditor'
 import { pageDraftKey, waitForPageSave, writePageDraft } from './projectPageDraft'
 import './ProjectPages.css'
+
+const ProjectPageEditor = lazy(() => import('./ProjectPageEditor'))
 
 type TreeState = { status: 'loading' | 'error' } | { status: 'ready'; entries: PageTreeEntry[] }
 type DetailState = { status: 'loading' | 'error' | 'missing' } | { status: 'ready'; page: ProjectPage }
@@ -29,6 +31,7 @@ function storeSelection(key: string, pageId: number | null) {
 }
 
 type TreeProps = {
+  projectId: number
   groups: ReturnType<typeof groupProjectPages>
   parentId: number | null
   selectedId: number | undefined
@@ -39,18 +42,18 @@ type TreeProps = {
 }
 
 function PageTree({ parentId, ...props }: TreeProps) {
-  const { groups, selectedId, expanded, busy, onSelect, onToggle } = props
+  const { projectId, groups, selectedId, expanded, busy, onSelect, onToggle } = props
   return (
-    <ul id={parentId === null ? undefined : `tf-page-children-${parentId}`}>
+    <ul id={parentId === null ? undefined : `tf-page-children-${projectId}-${parentId}`}>
       {groups.get(parentId)?.map(({ id, title, depth }) => {
         const hasChildren = groups.has(id)
         const open = hasChildren && expanded.has(id)
         return (
           <li key={id}>
-            <div className="tf-page-row" style={{ paddingInlineStart: `${Math.min(depth, 6) * 0.75}rem` }}>
+            <div className="tf-page-row" style={{ paddingInlineStart: `${Math.min(depth, 6) * 0.55}rem` }}>
               {hasChildren ? (
                 <button type="button" className="tf-page-toggle" aria-label={`${title} 하위 페이지 ${open ? '접기' : '펼치기'}`}
-                  aria-expanded={open} aria-controls={open ? `tf-page-children-${id}` : undefined}
+                  aria-expanded={open} aria-controls={open ? `tf-page-children-${projectId}-${id}` : undefined}
                   onClick={() => onToggle(id)}>{open ? '▾' : '▸'}</button>
               ) : <span aria-hidden="true" />}
               <button type="button" className="tf-page-link" title={title} disabled={busy}
@@ -77,7 +80,14 @@ function PageDetail({ projectId, draftKey, entry, hasChildren, busy, onCreateChi
   onAccessError: (status: number) => boolean
 }) {
   const [detail, setDetail] = useState<DetailState>({ status: 'loading' })
+  const pageActions = useRef<HTMLDetailsElement>(null)
+  const menuTrigger = useRef<HTMLElement>(null)
   const pageId = entry.id
+
+  function closeActions(restoreFocus = false) {
+    if (pageActions.current) pageActions.current.open = false
+    if (restoreFocus) menuTrigger.current?.focus()
+  }
 
   useEffect(() => {
     const controller = new AbortController()
@@ -97,7 +107,30 @@ function PageDetail({ projectId, draftKey, entry, hasChildren, busy, onCreateChi
 
   return (
     <article className="tf-page-detail" aria-labelledby="tf-page-title">
-      <h3 id="tf-page-title">{detail.status === 'ready' ? detail.page.title : entry.title}</h3>
+      <header className="tf-page-header">
+        <h2 id="tf-page-title">{detail.status === 'ready' ? detail.page.title : entry.title}</h2>
+        {detail.status === 'ready' && (
+          <details className="tf-page-actions" ref={pageActions}
+            onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget)) closeActions()
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== 'Escape' || !event.currentTarget.open) return
+              event.preventDefault()
+              closeActions(true)
+            }}>
+            <summary ref={(node) => { menuTrigger.current = node }} aria-label="페이지 관리">···</summary>
+            <div className="tf-page-action-panel">
+              <button type="button" disabled={busy} onClick={() => { closeActions(); onRename(detail.page) }}>이름 변경</button>
+              <button type="button" disabled={busy} onClick={() => { closeActions(); onCreateChild(pageId) }}>하위 페이지 추가</button>
+              <button type="button" className="tf-danger" disabled={hasChildren || busy}
+                aria-describedby={hasChildren ? 'tf-page-delete-help' : undefined}
+                onClick={() => { closeActions(true); onRemove(detail.page) }}>삭제</button>
+              {hasChildren && <p id="tf-page-delete-help" className="tf-page-hint">하위 페이지를 먼저 삭제해 주세요.</p>}
+            </div>
+          </details>
+        )}
+      </header>
       {detail.status === 'loading' && <p className="tf-status" role="status">페이지를 불러오는 중입니다.</p>}
       {(detail.status === 'missing' || detail.status === 'error') && (
         <>
@@ -108,25 +141,20 @@ function PageDetail({ projectId, draftKey, entry, hasChildren, busy, onCreateChi
         </>
       )}
       {detail.status === 'ready' && (
-        <>
-          <div className="tf-actions">
-            <button type="button" disabled={busy} onClick={() => onCreateChild(pageId)}>+ 하위 페이지</button>
-            <button type="button" disabled={busy} onClick={() => onRename(detail.page)}>이름 변경</button>
-            <button type="button" className="tf-danger" disabled={hasChildren || busy}
-              aria-describedby={hasChildren ? 'tf-page-delete-help' : undefined}
-              onClick={() => onRemove(detail.page)}>삭제</button>
-          </div>
-          {hasChildren && <p id="tf-page-delete-help" className="tf-page-hint">하위 페이지를 먼저 삭제해야 이 페이지를 삭제할 수 있습니다.</p>}
+        <Suspense fallback={<p className="tf-status" role="status">본문 편집기를 불러오는 중입니다.</p>}>
           <ProjectPageEditor page={detail.page} draftKey={draftKey} onSessionExpired={() => onAccessError(401)} />
-        </>
+        </Suspense>
       )}
     </article>
   )
 }
 
-export default function ProjectPages({ projectId, userId, onSessionExpired }: {
+export default function ProjectPages({ projectId, userId, active, workspace, onOpen, onSessionExpired }: {
   projectId: number
   userId: number
+  active: boolean
+  workspace: HTMLDivElement | null
+  onOpen: () => void
   onSessionExpired: () => void
 }) {
   const storageKey = `teamflow:page-selection:${userId}:${projectId}`
@@ -178,6 +206,7 @@ export default function ProjectPages({ projectId, userId, onSessionExpired }: {
     setSelectedId(id)
     setForm(null)
     setError('')
+    onOpen()
   }
 
   function togglePage(id: number) {
@@ -258,56 +287,73 @@ export default function ProjectPages({ projectId, userId, onSessionExpired }: {
     }, '페이지를 삭제하지 못했습니다.')
   }
 
-  if (blocked) return <p className="tf-error" role="alert">이 프로젝트의 문서에 접근할 수 없습니다.</p>
+  const accessError = <p className="tf-error" role="alert">이 프로젝트의 문서에 접근할 수 없습니다.</p>
 
   return (
-    <div className="tf-pages">
-      <aside className="tf-page-sidebar" aria-labelledby="tf-pages-heading">
-        <div className="tf-page-sidebar-header">
-          <h3 id="tf-pages-heading">문서</h3>
+    <>
+      <div className="tf-sidebar-page-tree">
+        {blocked ? accessError : <>
+          {tree.status === 'loading' && <p className="tf-status" role="status">페이지 목록을 불러오는 중입니다.</p>}
+          {tree.status === 'error' && <p className="tf-error" role="alert">페이지 목록을 불러오지 못했습니다.</p>}
+          {tree.status === 'ready' && (tree.entries.length === 0 ? <p className="tf-empty">아직 만든 페이지가 없습니다.</p> : (
+              <PageTree projectId={projectId} groups={groups} parentId={null} selectedId={active && !form ? selected?.id : undefined} expanded={expanded}
+                busy={busy} onSelect={selectPage} onToggle={togglePage} />
+          ))}
           {tree.status === 'ready' && (
-            <button type="button" disabled={busy} onClick={() => openForm({ kind: 'create', parentPageId: null })}>+ 새 페이지</button>
+            <button type="button" className="tf-page-link" disabled={busy} onClick={() => {
+              openForm({ kind: 'create', parentPageId: null })
+              onOpen()
+            }}>+ 새 페이지</button>
           )}
-        </div>
-        {tree.status === 'loading' && <p className="tf-status" role="status">페이지 목록을 불러오는 중입니다.</p>}
-        {tree.status === 'error' && <p className="tf-error" role="alert">페이지 목록을 불러오지 못했습니다.</p>}
-        {tree.status === 'ready' && (tree.entries.length === 0 ? <p className="tf-empty">아직 만든 페이지가 없습니다.</p> : (
-          <nav aria-label="프로젝트 페이지 목록">
-            <PageTree groups={groups} parentId={null} selectedId={selected?.id} expanded={expanded}
-              busy={busy} onSelect={selectPage} onToggle={togglePage} />
-          </nav>
-        ))}
-        {tree.status !== 'loading' && (
-          <button type="button" className="tf-page-refresh" disabled={busy} onClick={reload}>
-            {tree.status === 'error' ? '다시 불러오기' : '목록 새로고침'}
-          </button>
-        )}
-      </aside>
-      <div className="tf-page-workspace">
-        {busy && <p className="tf-status" role="status">변경 사항을 처리하는 중입니다.</p>}
-        {error && <p className="tf-error" role="alert">{error}</p>}
-        {form ? (
-          <form className="tf-page-form" aria-labelledby="tf-page-form-heading" onSubmit={submit}>
-            <h3 id="tf-page-form-heading">
-              {form.kind === 'rename' ? '페이지 이름 변경' : form.parentPageId === null ? '새 페이지' : '하위 페이지 추가'}
-            </h3>
-            {form.kind === 'create' && form.parentPageId !== null && <p>상위 페이지 · {selected?.title}</p>}
-            <label htmlFor="tf-page-form-title">페이지 제목</label>
-            <input id="tf-page-form-title" autoFocus required maxLength={200} value={title} readOnly={busy}
-              onChange={(event) => setTitle(event.target.value)} />
-            <div className="tf-actions">
-              <button type="submit" className="tf-primary" disabled={busy}>{form.kind === 'rename' ? '저장' : '만들기'}</button>
-              <button type="button" disabled={busy} onClick={() => { setForm(null); setError('') }}>취소</button>
-            </div>
-          </form>
-        ) : selected && (
-          <PageDetail key={selected.id} projectId={projectId} entry={selected} hasChildren={groups.has(selected.id)}
-            draftKey={pageDraftKey(userId, projectId, selected.id)}
-            busy={busy} onCreateChild={(parentPageId) => openForm({ kind: 'create', parentPageId })}
-            onRename={(page) => openForm({ kind: 'rename', pageId: page.id }, page.title)}
-            onRemove={remove} onReload={reload} onAccessError={onAccessError} />
-        )}
+          {tree.status !== 'loading' && (
+            <button type="button" className="tf-page-refresh" disabled={busy} onClick={reload}>
+              {tree.status === 'error' ? '다시 불러오기' : '목록 새로고침'}
+            </button>
+          )}
+        </>}
       </div>
-    </div>
+      {workspace?.dataset.projectId === String(projectId) && createPortal(
+        <div className="tf-pages tf-page-workspace">
+          {blocked ? accessError : (
+            <>
+              {busy && <p className="tf-status" role="status">변경 사항을 처리하는 중입니다.</p>}
+              {error && <p className="tf-error" role="alert">{error}</p>}
+              {form && (
+                <form className="tf-page-form" aria-labelledby="tf-page-form-heading" onSubmit={submit}>
+                  <h3 id="tf-page-form-heading">
+                    {form.kind === 'rename' ? '페이지 이름 변경' : form.parentPageId === null ? '새 페이지' : '하위 페이지 추가'}
+                  </h3>
+                  {form.kind === 'create' && form.parentPageId !== null && <p>상위 페이지 · {selected?.title}</p>}
+                  <label htmlFor="tf-page-form-title">페이지 제목</label>
+                  <input id="tf-page-form-title" autoFocus required maxLength={200} value={title} readOnly={busy}
+                    onChange={(event) => setTitle(event.target.value)} />
+                  <div className="tf-actions">
+                    <button type="submit" className="tf-primary" disabled={busy}>{form.kind === 'rename' ? '저장' : '만들기'}</button>
+                    <button type="button" disabled={busy} onClick={() => { setForm(null); setError('') }}>취소</button>
+                  </div>
+                </form>
+              )}
+              {!form && selected && (
+                <PageDetail key={selected.id} projectId={projectId} entry={selected} hasChildren={groups.has(selected.id)}
+                  draftKey={pageDraftKey(userId, projectId, selected.id)}
+                  busy={busy} onCreateChild={(parentPageId) => openForm({ kind: 'create', parentPageId })}
+                  onRename={(page) => openForm({ kind: 'rename', pageId: page.id }, page.title)}
+                  onRemove={remove} onReload={reload} onAccessError={onAccessError} />
+              )}
+              {!form && !selected && (
+                tree.status === 'ready' ? (
+                  <button type="button" onClick={() => openForm({ kind: 'create', parentPageId: null })}>+ 새 페이지</button>
+                ) : tree.status === 'loading' ? (
+                  <p className="tf-status" role="status">페이지를 불러오는 중입니다.</p>
+                ) : (
+                  <button type="button" onClick={reload}>페이지 목록 다시 불러오기</button>
+                )
+              )}
+            </>
+          )}
+        </div>,
+        workspace,
+      )}
+    </>
   )
 }

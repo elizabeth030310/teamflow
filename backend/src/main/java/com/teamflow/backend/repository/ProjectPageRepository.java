@@ -11,10 +11,10 @@ import java.util.Optional;
 @Repository
 public class ProjectPageRepository {
 
-    private static final String PAGE_COLUMNS = "id, project_id, parent_page_id, title, content, created_at, updated_at";
+    private static final String PAGE_COLUMNS = "id, project_id, parent_page_id, title, content, content_format, created_at, updated_at";
     private static final RowMapper<Page> PAGE_MAPPER = (row, index) -> new Page(
             row.getLong("id"), row.getLong("project_id"), row.getObject("parent_page_id", Long.class),
-            row.getString("title"), row.getString("content"), row.getObject("created_at", OffsetDateTime.class),
+            row.getString("title"), row.getString("content"), row.getString("content_format"), row.getObject("created_at", OffsetDateTime.class),
             row.getObject("updated_at", OffsetDateTime.class));
     private static final RowMapper<PageSummary> SUMMARY_MAPPER = (row, index) -> new PageSummary(
             row.getLong("id"), row.getObject("parent_page_id", Long.class), row.getString("title"));
@@ -75,29 +75,29 @@ public class ProjectPageRepository {
                 .params(projectId, pageId).query(Boolean.class).single();
     }
 
-    public Page create(long projectId, Long parentPageId, String title, String content) {
+    public Page create(long projectId, Long parentPageId, String title, String content, String contentFormat) {
         return jdbc.sql("""
-                INSERT INTO project_pages (project_id, parent_page_id, title, content)
-                VALUES (:projectId, :parentPageId, :title, :content) RETURNING
+                INSERT INTO project_pages (project_id, parent_page_id, title, content, content_format)
+                VALUES (:projectId, :parentPageId, :title, :content, :contentFormat) RETURNING
                 """ + PAGE_COLUMNS).param("projectId", projectId).param("parentPageId", parentPageId)
-                .param("title", title).param("content", content).query(PAGE_MAPPER).single();
+                .param("title", title).param("content", content).param("contentFormat", contentFormat).query(PAGE_MAPPER).single();
     }
 
-    public Page update(long projectId, long pageId, Long parentPageId, String title, String content) {
+    public Page update(long projectId, long pageId, Long parentPageId, String title, String content, String contentFormat) {
         return jdbc.sql("""
                 UPDATE project_pages SET parent_page_id = :parentPageId, title = :title, content = :content,
-                    updated_at = clock_timestamp()
+                    content_format = :contentFormat, updated_at = clock_timestamp()
                 WHERE project_id = :projectId AND id = :pageId RETURNING
                 """ + PAGE_COLUMNS).param("projectId", projectId).param("pageId", pageId)
                 .param("parentPageId", parentPageId).param("title", title).param("content", content)
-                .query(PAGE_MAPPER).single();
+                .param("contentFormat", contentFormat).query(PAGE_MAPPER).single();
     }
 
     public void delete(long projectId, long pageId) {
         jdbc.sql("DELETE FROM project_pages WHERE project_id = ? AND id = ?").params(projectId, pageId).update();
     }
 
-    public record Page(long id, long projectId, Long parentPageId, String title, String content,
+    public record Page(long id, long projectId, Long parentPageId, String title, String content, String contentFormat,
                        OffsetDateTime createdAt, OffsetDateTime updatedAt) {
     }
 

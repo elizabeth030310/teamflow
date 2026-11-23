@@ -1,4 +1,11 @@
-export type PageDraft = { content: string; baseContent: string }
+import type { PageContentFormat } from './projectPageApi'
+
+export type PageDraft = {
+  content: string
+  baseContent: string
+  contentFormat?: PageContentFormat
+  baseContentFormat?: PageContentFormat
+}
 
 const drafts = new Map<string, PageDraft>()
 const memoryOnly = new Set<string>()
@@ -46,9 +53,11 @@ export function writePageDraft(key: string, draft: PageDraft | null) {
   return !memoryOnly.has(key)
 }
 
-export function acknowledgePageSave(key: string, savedContent: string) {
+export function acknowledgePageSave(key: string, savedContent: string, savedContentFormat?: PageContentFormat) {
   const current = readPageDraft(key)
-  const next = current && current.content !== savedContent ? { ...current, baseContent: savedContent } : null
+  const unchanged = current?.content === savedContent
+    && (current.contentFormat ?? 'plain') === (savedContentFormat ?? 'plain')
+  const next = current && !unchanged ? { ...current, baseContent: savedContent, baseContentFormat: savedContentFormat } : null
   const persisted = writePageDraft(key, next)
   return { next, persisted }
 }

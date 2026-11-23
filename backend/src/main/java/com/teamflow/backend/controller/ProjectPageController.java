@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 
 @RestController
@@ -65,7 +66,7 @@ public class ProjectPageController {
     public Page create(@PathVariable long projectId, @Valid @RequestBody PageRequest request, HttpSession session) {
         lockAccessibleProject(projectId, session);
         validateParent(projectId, request.parentPageId());
-        return pages.create(projectId, request.parentPageId(), request.title().strip(), request.pageContent());
+        return pages.create(projectId, request.parentPageId(), request.title().strip(), request.pageContent(), request.pageContentFormat());
     }
 
     @PutMapping("/{pageId}")
@@ -73,13 +74,16 @@ public class ProjectPageController {
     public Page update(@PathVariable long projectId, @PathVariable long pageId,
                        @Valid @RequestBody PageRequest request, HttpSession session) {
         lockAccessibleProject(projectId, session);
-        requirePage(projectId, pageId);
+        Page current = requirePage(projectId, pageId);
+        if (request.expectedUpdatedAt() != null && !request.expectedUpdatedAt().isEqual(current.updatedAt())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "페이지가 변경되었습니다.");
+        }
         Long parentPageId = request.parentPageId();
         validateParent(projectId, parentPageId);
         if (parentPageId != null && pages.wouldCycle(projectId, pageId, parentPageId)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "페이지 계층에 순환이 생깁니다.");
         }
-        return pages.update(projectId, pageId, parentPageId, request.title().strip(), request.pageContent());
+        return pages.update(projectId, pageId, parentPageId, request.title().strip(), request.pageContent(), request.pageContentFormat());
     }
 
     @DeleteMapping("/{pageId}")
@@ -119,10 +123,19 @@ public class ProjectPageController {
     public record PageRequest(
             @Positive Long parentPageId,
             @NotBlank @Size(max = 200) @Pattern(regexp = "[^\\x00]*") String title,
-            @Size(max = 100000) @Pattern(regexp = "[^\\x00]*") String content) {
+            @Size(max = 6000000) @Pattern(regexp = "[^\\x00]*") String content,
+            @Pattern(regexp = "plain|rich-v1") String contentFormat,
+            OffsetDateTime expectedUpdatedAt) {
 
         String pageContent() {
+            if (content != null && content.length() > 100000 && pageContentFormat().equals("plain")) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "본문이 너무 깁니다.");
+            }
             return content == null ? "" : content;
+        }
+
+        String pageContentFormat() {
+            return contentFormat == null ? "plain" : contentFormat;
         }
     }
 }
