@@ -1,4 +1,4 @@
-# TeamFlow 197-A 비공개 VPS 테스트 배포
+# TeamFlow 비공개 VPS 스테이징 (197-A / 197-B)
 
 Hetzner VPS에 Docker Compose로 Nginx, Spring Boot 4.1.2 / Java 21, PostgreSQL 16을 실행합니다. Tailscale Serve가 테스트 참여자에게 HTTPS 주소를 제공합니다. VPS가 실행 중이면 개발 PC를 꺼도 접속할 수 있습니다. [Hetzner 요금](https://docs.hetzner.com/general/infrastructure-and-availability/price-adjustment/)과 [Tailscale 개인용 요금](https://tailscale.com/pricing)을 확인하세요.
 
@@ -22,14 +22,37 @@ STAGING_DB_OWNER_PASSWORD=fixture STAGING_DB_APP_PASSWORD=fixture \
 - 인증서 파일은 컨테이너가 읽을 수 있어야 합니다. 서버 키는 사용 중인 `postgres:16-alpine` 이미지의 `postgres` 사용자 UID/GID를 확인해 해당 소유권과 `0600`을 설정합니다. 키를 담은 디렉터리에도 해당 사용자의 탐색 권한이 있어야 합니다. [PostgreSQL TLS 파일 권한](https://www.postgresql.org/docs/16/ssl-tcp.html)
 - 백엔드는 `prod` 프로필로 CA와 서버 이름을 검증합니다. PostgreSQL과 백엔드 포트는 호스트에 게시하지 않습니다. 두 영속 볼륨은 Compose 프로젝트 `teamflow-197a-vps`에 속합니다. 기존 볼륨을 마운트하거나 `docker compose down -v`를 실행하지 않습니다.
 
-## 3. 새 스테이징 DB를 검토한 뒤 기동
+## 3. 승인된 새 스테이징 DB 준비
 
-승인된 VPS에서 이 폴더를 기준으로 다음 순서로 진행합니다.
+1. 이 폴더에서 `docker compose --env-file .env config --quiet`로 설정을 검사합니다. 새 전용 PostgreSQL 16 인스턴스임을 확인한 뒤 `docker compose --env-file .env up -d db`로 DB 서비스만 시작합니다. `docker compose ps`에서 DB가 준비되었는지 확인합니다.
+2. 아래 명령을 순서대로 실행합니다. 기준본은 `2071704`의 JPA 매핑과 공개 SQL의 193-D까지 반영합니다. 기존 증분 SQL을 중복 적용하지 않습니다. 기준본은 전용 클러스터, DB 이름, 실행 역할, PostgreSQL 버전과 빈 스키마를 검사하며 오류가 나면 트랜잭션을 롤백합니다. 운영 중인 개발 DB나 데이터가 있는 볼륨에 실행하지 않습니다.
 
-1. `docker compose --env-file .env config --quiet`로 설정을 확인합니다. `docker compose --env-file .env up -d db`는 이 VPS의 새 DB를 초기화합니다.
-2. 스키마 기준본과 증분 SQL 적용 목록을 먼저 검토합니다. 빈 DB에 합성 데이터용 스키마를 준비한 뒤 누락된 증분만 적용합니다. `teamflow_staging_owner`는 초기 설정과 마이그레이션에만 사용합니다. `teamflow_staging_app`을 별도로 만들고 앱에 필요한 테이블·열·시퀀스 권한만 부여합니다. 테스트 계정은 이 DB에만 준비합니다. [스키마 순서와 앱 권한](../../backend/db/PRODUCTION_DATABASE.md)
-3. `docker compose --env-file .env up -d --build backend gateway`로 앱을 시작합니다. 개발 프로필이나 자동 스키마 업데이트로 시작 실패를 우회하지 않습니다. `docker compose ps`와 `docker compose logs --tail=100 backend gateway`로 시작 상태를 확인합니다.
-4. Tailscale HTTPS를 활성화하고, VPS에서 `sudo tailscale serve --bg http://127.0.0.1:19780`을 실행합니다. 표시된 HTTPS 주소 하나로 UI와 `/api`에 접속합니다. `tailscale serve status`와 접근 정책을 확인합니다. 경유지에서 시작이 확인될 때까지 테스터에게 주소를 전달하지 않습니다. [Tailscale Serve 명령](https://tailscale.com/docs/reference/tailscale-cli/serve)
+   ```sh
+   docker compose --env-file .env exec -T db psql -X -v ON_ERROR_STOP=1 \
+     -U teamflow_staging_owner -d teamflow_staging -f - < 197b-bootstrap.sql
+
+   docker compose --env-file .env exec db psql -X -v ON_ERROR_STOP=1 \
+     -U teamflow_staging_owner -d teamflow_staging -c '\password teamflow_staging_app'
+   ```
+
+   비밀번호 프롬프트 두 곳에 스테이징 `.env`의 `STAGING_DB_APP_PASSWORD` 값을 입력합니다. 비밀번호 설정만 실패했으면 두 번째 명령만 다시 실행합니다. 초기화 역할은 PostgreSQL 관리 계정으로 유지하고, 백엔드는 별도 앱 역할로 접속합니다. 앱은 `users.role`을 설정하거나 바꿀 수 없고, 감사 기록에는 조회와 삽입만 가능합니다. ID는 PostgreSQL의 IDENTITY 기본값을 사용하므로 앱에는 별도 시퀀스 권한을 부여하지 않습니다.
+
+3. 아래 명령으로 실제 앱 역할의 TCP 접속 및 권한을 검사합니다. 이 검사는 합성 행으로 쓰기와 권한 차단을 확인하고 행 변경을 되돌립니다. 자동 증가 번호에는 빈 번호가 생길 수 있습니다. Docker Compose는 대화형 입력을 전달해야 하므로 이 명령에 `-T`를 붙이지 않습니다.
+
+   ```sh
+   docker compose --env-file .env cp 197b-verify.sql db:/tmp/teamflow-197b-verify.sql
+   docker compose --env-file .env exec db psql -X -W -v ON_ERROR_STOP=1 \
+     'host=db dbname=teamflow_staging user=teamflow_staging_app sslmode=require'
+   ```
+
+   앱 DB 비밀번호를 입력한 뒤 `psql`에서 다음 한 줄을 실행하고 `DO`와 `ROLLBACK`을 확인합니다. 이 접속은 TLS 암호화를 점검합니다. CA와 호스트 이름 검증은 다음 단계의 백엔드 `prod` 프로필이 수행합니다.
+
+   ```psql
+   \i /tmp/teamflow-197b-verify.sql
+   ```
+
+4. `\q`로 `psql`을 나온 뒤 `docker compose --env-file .env up -d --build backend gateway`로 앱을 시작합니다. `docker compose ps`와 `docker compose logs --tail=100 backend gateway`에서 백엔드의 스키마 검증과 시작 성공을 확인합니다. 참여자 계정은 별도 승인된 절차로 생성합니다. 기준본은 관리자나 사용자 데이터를 넣지 않습니다.
+5. Tailscale HTTPS를 활성화하고 VPS에서 `sudo tailscale serve --bg http://127.0.0.1:19780`을 실행합니다. 표시된 HTTPS 주소 하나로 UI와 `/api`에 접속합니다. `tailscale serve status`와 접근 정책을 확인합니다. 경유지에서 시작이 확인될 때까지 테스터에게 주소를 전달하지 않습니다. [Tailscale Serve 명령](https://tailscale.com/docs/reference/tailscale-cli/serve)
 
 ## 4. 접속 점검과 운영
 
