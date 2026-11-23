@@ -1,4 +1,5 @@
 
+import { apiFetch } from './apiFetch.ts'
 import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import App from './App'
@@ -94,7 +95,7 @@ function AuthenticatedApp() {
     setError('')
 
     try {
-      const response = await fetch('/api/auth/logout', {
+      const response = await apiFetch('/api/auth/logout', {
         method: 'POST',
         credentials: 'include',
       })
@@ -139,7 +140,7 @@ function AuthenticatedApp() {
     setError('')
     setAccountAction('password')
     try {
-      const response = await fetch('/api/auth/change-password', {
+      const response = await apiFetch('/api/auth/change-password', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },

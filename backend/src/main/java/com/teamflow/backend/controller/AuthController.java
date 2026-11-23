@@ -4,6 +4,7 @@ package com.teamflow.backend.controller;
 import com.teamflow.backend.entity.User;
 import com.teamflow.backend.repository.UserRepository;
 import com.teamflow.backend.service.AccountAccess;
+import com.teamflow.backend.service.LoginAttemptLimiter;
 import com.teamflow.backend.service.SignupVerificationService;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -33,6 +34,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -42,15 +44,20 @@ public class AuthController {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final SignupVerificationService signupVerification;
+    private final LoginAttemptLimiter loginAttempts;
+    private final String dummyPasswordHash;
 
     public AuthController(
             UserRepository userRepository,
             PasswordEncoder passwordEncoder,
-            SignupVerificationService signupVerification) {
+            SignupVerificationService signupVerification,
+            LoginAttemptLimiter loginAttempts) {
 
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.signupVerification = signupVerification;
+        this.loginAttempts = loginAttempts;
+        this.dummyPasswordHash = passwordEncoder.encode(UUID.randomUUID().toString());
     }
 
     public record SignupCodeRequest(@NotBlank @Email @Size(max = 255) String email) {
@@ -94,9 +101,11 @@ public class AuthController {
     // 로그인 요청 데이터
     public record LoginRequest(
             @NotBlank(message = "이메일을 입력해 주세요.")
+            @Size(max = 255)
             String email,
 
             @NotBlank(message = "비밀번호를 입력해 주세요.")
+            @Size(max = 256)
             String password
     ) {
     }
@@ -142,18 +151,14 @@ public class AuthController {
 
         String email = request.email().trim().toLowerCase(Locale.ROOT);
         String legacyEmail = request.email().trim().toLowerCase(Locale.getDefault());
+        loginAttempts.reserve(httpRequest.getRemoteAddr(), email);
 
         User user = userRepository.findByEmail(email)
                 .or(() -> email.equals(legacyEmail) ? Optional.empty() : userRepository.findByEmail(legacyEmail))
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.UNAUTHORIZED,
-                        "이메일 또는 비밀번호가 올바르지 않습니다."
-                ));
-
-        if (user.getAccountStatus() != User.Status.ACTIVE
-                || exceedsPasswordByteLimit(request.password()) || !passwordEncoder.matches(
-                request.password(),
-                user.getPassword())) {
+                .orElse(null);
+        boolean passwordMatches = !exceedsPasswordByteLimit(request.password()) && passwordEncoder.matches(
+                request.password(), user == null ? dummyPasswordHash : user.getPassword());
+        if (!passwordMatches || user == null || user.getAccountStatus() != User.Status.ACTIVE) {
 
             throw new ResponseStatusException(
                     HttpStatus.UNAUTHORIZED,

@@ -9,7 +9,7 @@ services:
       POSTGRES_USER: teamflow
       POSTGRES_PASSWORD: ${TEAMFLOW_DB_PASSWORD:?Set TEAMFLOW_DB_PASSWORD}
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - teamflow_postgres_data:/var/lib/postgresql/data
 

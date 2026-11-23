@@ -1,3 +1,5 @@
+import { apiFetch } from './apiFetch.ts'
+
 export type PageSummary = {
   id: number
   parentPageId: number | null
@@ -29,7 +31,7 @@ export function projectPageApi(projectId: number, signal: AbortSignal) {
   const base = `/api/projects/${projectId}/pages`
 
   async function request(path: string, method = 'GET', input?: PageInput) {
-    const response = await fetch(`${base}${path}`, {
+    const response = await apiFetch(`${base}${path}`, {
       method,
       credentials: 'include',
       cache: 'no-store',

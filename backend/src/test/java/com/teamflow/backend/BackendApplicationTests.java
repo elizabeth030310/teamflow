@@ -61,6 +61,18 @@ class BackendApplicationTests {
 	}
 
 	@Test
+	void stateChangesRequireTheApplicationHeaderAndSameOrigin() throws Exception {
+		MockMvc rawMvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
+		rawMvc.perform(post("/api/auth/logout")).andExpect(status().isForbidden());
+		mvc().perform(post("/api/auth/logout").header("Sec-Fetch-Site", "same-site"))
+				.andExpect(status().isForbidden());
+		mvc().perform(post("/api/auth/logout").header("Origin", "https://example.invalid"))
+				.andExpect(status().isForbidden());
+		mvc().perform(post("/api/auth/logout").header("Sec-Fetch-Site", "same-origin"))
+				.andExpect(status().isOk());
+	}
+
+	@Test
 	void administratorCanManageMembersAndRevokeExistingSessions() throws Exception {
 		MockMvc mvc = mvc();
 		String adminEmail = "admin-fixture@example.test";
@@ -283,7 +295,7 @@ class BackendApplicationTests {
 	}
 
 	@Test
-	void changingPasswordUpdatesOnlyThePasswordAndEndsTheSession() throws Exception {
+	void changingPasswordUpdatesCredentialsAndRevokesAllSessions() throws Exception {
 		MockMvc mvc = mvc();
 		String email = newEmail();
 		String currentPassword = "old-password";
@@ -291,6 +303,9 @@ class BackendApplicationTests {
 		User account = users.save(new User("Existing", email, passwords.encode(currentPassword)));
 		MockHttpSession session = (MockHttpSession) login(mvc, email, currentPassword)
 				.andExpect(status().isOk()).andReturn().getRequest().getSession(false);
+		MockHttpSession otherSession = (MockHttpSession) login(mvc, email, currentPassword)
+				.andExpect(status().isOk()).andReturn().getRequest().getSession(false);
+		mvc.perform(get("/api/projects").session(otherSession)).andExpect(status().isOk());
 
 		mvc.perform(post("/api/auth/change-password").session(session).contentType(MediaType.APPLICATION_JSON)
 				.content(passwordChange(currentPassword, newPassword)))
@@ -298,7 +313,9 @@ class BackendApplicationTests {
 				.andExpect(jsonPath("$.message").exists());
 
 		assertThat(session.isInvalid()).isTrue();
+		mvc.perform(get("/api/projects").session(otherSession)).andExpect(status().isUnauthorized());
 		User updated = users.findById(account.getId()).orElseThrow();
+		assertThat(updated.getAccessRevision()).isEqualTo(account.getAccessRevision() + 1);
 		assertThat(updated.getName()).isEqualTo(account.getName());
 		assertThat(updated.getEmail()).isEqualTo(email);
 		assertThat(passwords.matches(newPassword, updated.getPassword())).isTrue();
@@ -430,7 +447,8 @@ class BackendApplicationTests {
 	}
 
 	private MockMvc mvc() {
-		return MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
+		return MockMvcBuilders.webAppContextSetup(context).apply(springSecurity())
+				.defaultRequest(get("/").header("X-TeamFlow-Request", "1")).build();
 	}
 
 	private void openResendWindow(String key) {

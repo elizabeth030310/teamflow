@@ -1,4 +1,5 @@
 
+import { apiFetch } from './apiFetch.ts'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { DragEvent } from 'react'
 import AdSidebar from './AdSidebar'
@@ -374,7 +375,7 @@ function App({ userId, onSessionExpired }: {
     let failure = ''
 
     try {
-      const response = await fetch(`/api/tasks/${task.id}/assignee`, {
+      const response = await apiFetch(`/api/tasks/${task.id}/assignee`, {
         method: 'PATCH',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -438,7 +439,7 @@ function App({ userId, onSessionExpired }: {
     setCreatingProject(true)
     setProjectFormError('')
     try {
-      const response = await fetch('/api/projects', {
+      const response = await apiFetch('/api/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -492,7 +493,7 @@ function App({ userId, onSessionExpired }: {
     try {
       setError('')
 
-      const response = await fetch(`/api/projects/${id}`, {
+      const response = await apiFetch(`/api/projects/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -531,7 +532,7 @@ function App({ userId, onSessionExpired }: {
     try {
       setError('')
 
-      const response = await fetch(`/api/projects/${id}`, {
+      const response = await apiFetch(`/api/projects/${id}`, {
         method: 'DELETE',
       })
 
@@ -599,7 +600,7 @@ function App({ userId, onSessionExpired }: {
       setError('')
       setCreatingTask(true)
 
-      const response = await fetch('/api/tasks', {
+      const response = await apiFetch('/api/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -662,7 +663,7 @@ function App({ userId, onSessionExpired }: {
       setError('')
       setSavingTaskId(taskId)
 
-      const response = await fetch(`/api/tasks/${taskId}`, {
+      const response = await apiFetch(`/api/tasks/${taskId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -712,7 +713,7 @@ function App({ userId, onSessionExpired }: {
       setError('')
       setUpdatingTaskId(taskId)
 
-      const response = await fetch(
+      const response = await apiFetch(
         `/api/tasks/${taskId}/status`,
         {
           method: 'PATCH',
@@ -756,7 +757,7 @@ function App({ userId, onSessionExpired }: {
       setError('')
       setDeletingTaskId(taskId)
 
-      const response = await fetch(`/api/tasks/${taskId}`, {
+      const response = await apiFetch(`/api/tasks/${taskId}`, {
         method: 'DELETE',
       })
 

@@ -55,7 +55,8 @@ class ProjectCollaborationTests {
 
     @BeforeEach
     void setUp() {
-        mvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
+        mvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity())
+                .defaultRequest(get("/").header("X-TeamFlow-Request", "1")).build();
         owner = addUser("owner");
         invitee = addUser("invitee");
         outsider = addUser("outsider");

@@ -52,7 +52,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Transactional
     @Modifying
     @Query("""
-            update User account set account.password = :newHash
+            update User account set account.password = :newHash,
+                account.accessRevision = account.accessRevision + 1
             where account.id = :userId and account.password = :previousHash
               and account.accessRevision = :revision
             """)

@@ -1,5 +1,10 @@
 # React + TypeScript + Vite
 
+## TeamFlow 요청 보안
+
+- 브라우저에서 화면과 `/api`를 같은 HTTPS 출처로 제공하고, 프록시가 백엔드에 공개 호스트와 HTTPS 스킴을 정확히 전달하도록 구성합니다. 백엔드 포트는 신뢰하는 프록시만 접근하도록 제한하고, 클라이언트가 보낸 전달 헤더는 프록시에서 덮어씁니다.
+- 변경 요청은 프런트엔드의 `apiFetch`를 사용합니다. 별도 API 클라이언트는 `X-TeamFlow-Request: 1` 헤더를 보냅니다. 배포 전 같은 출처에서 로그인·로그아웃과 첨부 업로드가 동작하는지 확인하고, 새 프런트엔드와 백엔드를 함께 배포한 뒤 기존 탭은 새로고침합니다.
+
 ## TeamFlow 광고 사이드바
 
 - `src/App.tsx`의 `workspaceAds`가 기능 플래그와 배너 데이터를 전달합니다. 활성화하려면 `enabled: true`와 `ad: { title, href, description? }`를 함께 설정합니다. 링크는 절대 HTTPS 주소를 사용하고 `description`은 생략할 수 있습니다.

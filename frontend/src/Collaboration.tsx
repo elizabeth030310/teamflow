@@ -1,3 +1,4 @@
+import { apiFetch } from './apiFetch.ts'
 import { useEffect, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 
@@ -33,7 +34,7 @@ class ApiError extends Error {
 }
 
 async function request<Data>(path: string, options?: RequestInit): Promise<Data> {
-  const response = await fetch(`/api/projects${path}`, {
+  const response = await apiFetch(`/api/projects${path}`, {
     ...options,
     credentials: 'include',
   })

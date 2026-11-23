@@ -1,3 +1,4 @@
+import { apiFetch } from './apiFetch.ts'
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { findCommentFocus, groupTaskComments, isTaskComment, parseTaskComments } from './taskCommentThreads'
@@ -250,7 +251,7 @@ export default function TaskComments({ taskId, userId, revision, focusTarget, co
       : action.method === 'PATCH' ? { content: action.content } : undefined
 
     try {
-      const response = await fetch(action.method === 'POST' ? endpoint : `${endpoint}/${action.commentId}`, {
+      const response = await apiFetch(action.method === 'POST' ? endpoint : `${endpoint}/${action.commentId}`, {
         method: action.method,
         credentials: 'include',
         headers: body ? { 'Content-Type': 'application/json' } : undefined,

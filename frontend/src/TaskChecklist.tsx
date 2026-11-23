@@ -1,3 +1,4 @@
+import { apiFetch } from './apiFetch.ts'
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 
@@ -83,7 +84,7 @@ export default function TaskChecklist({ taskId, revision, connectionRevision, on
 
     try {
       const url = 'itemId' in change ? `${endpoint}/${change.itemId}` : endpoint
-      const response = await fetch(url, {
+      const response = await apiFetch(url, {
         method: change.method,
         credentials: 'include',
         ...('body' in change ? {

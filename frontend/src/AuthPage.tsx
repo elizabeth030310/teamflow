@@ -1,4 +1,5 @@
 
+import { apiFetch } from './apiFetch.ts'
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import ThemeSelect from './ThemeSelect.tsx'
@@ -37,7 +38,7 @@ function AuthPage({ onLogin, connectionError, loginNotice }: AuthPageProps) {
   }, [codeRequested])
 
   const requestCode = async () => {
-    const response = await fetch('/api/auth/signup/code', {
+    const response = await apiFetch('/api/auth/signup/code', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email }),
@@ -91,7 +92,7 @@ function AuthPage({ onLogin, connectionError, loginNotice }: AuthPageProps) {
       if (isSignup && new TextEncoder().encode(password).length > 72) {
         throw new Error('비밀번호는 UTF-8 기준 72바이트 이하여야 합니다.')
       }
-      const response = await fetch(
+      const response = await apiFetch(
         isSignup ? '/api/auth/signup' : '/api/auth/login',
         {
           method: 'POST',
@@ -118,6 +119,10 @@ function AuthPage({ onLogin, connectionError, loginNotice }: AuthPageProps) {
 
         if (response.status === 400) {
           throw new Error('입력한 정보를 확인해 주세요.')
+        }
+
+        if (response.status === 429) {
+          throw new Error('요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.')
         }
 
         if (response.status === 503) {

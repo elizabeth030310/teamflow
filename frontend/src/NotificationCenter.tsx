@@ -1,3 +1,4 @@
+import { apiFetch } from './apiFetch.ts'
 import { useEffect, useRef, useState } from 'react'
 import { startNotificationSync } from './notificationSync'
 import type { NotificationInbox, NotificationItem } from './notificationSync'
@@ -57,7 +58,7 @@ export default function NotificationCenter({ onOpenTask, onSessionExpired }: {
     try {
       if (!item?.read) {
         const path = item ? `${item.id}/read` : 'read-all'
-        const response = await fetch(`/api/notifications/${path}`, {
+        const response = await apiFetch(`/api/notifications/${path}`, {
           method: 'PATCH',
           credentials: 'include',
           signal: AbortSignal.timeout(15_000),

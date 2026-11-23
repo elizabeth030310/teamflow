@@ -1,3 +1,4 @@
+import { apiFetch } from './apiFetch.ts'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { createSearchMatcher } from './search'
@@ -112,7 +113,7 @@ export default function AdminDashboard({ onSessionExpired }: { onSessionExpired:
     setSaving(true)
     setDialogError('')
     try {
-      const response = await fetch(`/api/admin/users/${member.id}/status`, {
+      const response = await apiFetch(`/api/admin/users/${member.id}/status`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-TeamFlow-Admin': 'member-status' },
         body: JSON.stringify({ status, revision: member.revision, reason }),

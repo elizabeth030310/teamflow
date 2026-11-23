@@ -1,3 +1,4 @@
+import { apiFetch } from './apiFetch.ts'
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 
@@ -128,11 +129,11 @@ export default function TaskAttachments({ taskId, userId, revision, connectionRe
       if (action.type === 'upload') {
         const form = new FormData()
         form.append('file', action.file)
-        response = await fetch(endpoint, { method: 'POST', credentials: 'include', body: form, signal })
+        response = await apiFetch(endpoint, { method: 'POST', credentials: 'include', body: form, signal })
       } else {
         const itemUrl = `${endpoint}/${action.attachment.id}`
         const downloading = action.type === 'download'
-        response = await fetch(downloading ? `${itemUrl}/download` : itemUrl, {
+        response = await apiFetch(downloading ? `${itemUrl}/download` : itemUrl, {
           method: downloading ? 'GET' : 'DELETE',
           credentials: 'include',
           cache: 'no-store',

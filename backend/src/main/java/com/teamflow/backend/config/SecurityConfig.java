@@ -20,6 +20,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.RequestAuthorizationContext;
+import org.springframework.security.web.csrf.CsrfFilter;
 
 @Configuration
 public class SecurityConfig {
@@ -34,9 +35,8 @@ public class SecurityConfig {
         };
 
         http
-                // 개발 중 임시 설정
-                // 이후 단계에서 CSRF 보호 적용 예정
                 .csrf(csrf -> csrf.disable())
+                .addFilterBefore(new SameOriginRequestFilter(), CsrfFilter.class)
 
                 .authorizeHttpRequests(auth -> auth
 
