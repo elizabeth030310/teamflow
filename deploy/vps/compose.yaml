@@ -1,0 +1,79 @@
+name: teamflow-197a-vps
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: teamflow_staging
+      POSTGRES_USER: teamflow_staging_owner
+      POSTGRES_PASSWORD: ${STAGING_DB_OWNER_PASSWORD:?Set STAGING_DB_OWNER_PASSWORD}
+    command:
+      - postgres
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/run/db-tls/server.crt
+      - -c
+      - ssl_key_file=/run/db-tls/server.key
+    volumes:
+      - staging_db:/var/lib/postgresql/data
+      - type: bind
+        source: ./secrets/db
+        target: /run/db-tls
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "teamflow_staging_owner", "-d", "teamflow_staging"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [data]
+
+  backend:
+    build:
+      context: ../..
+      dockerfile: deploy/vps/Dockerfile
+      target: backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      TEAMFLOW_PROD_DB_HOST: db
+      TEAMFLOW_PROD_DB_NAME: teamflow_staging
+      TEAMFLOW_PROD_DB_USER: teamflow_staging_app
+      TEAMFLOW_PROD_DB_PASSWORD: ${STAGING_DB_APP_PASSWORD:?Set STAGING_DB_APP_PASSWORD}
+      TEAMFLOW_PROD_DB_SSL_ROOT_CERT: /run/db-root.crt
+      TEAMFLOW_ATTACHMENT_STORAGE_ROOT: /storage/attachments
+    volumes:
+      - staging_attachments:/storage/attachments
+      - type: bind
+        source: ./secrets/ca.crt
+        target: /run/db-root.crt
+        read_only: true
+        bind:
+          create_host_path: false
+    networks: [edge, data]
+
+  gateway:
+    build:
+      context: ../..
+      dockerfile: deploy/vps/Dockerfile
+      target: gateway
+    restart: unless-stopped
+    depends_on: [backend]
+    ports:
+      - "127.0.0.1:19780:8080"
+    networks: [edge]
+
+networks:
+  edge:
+  data:
+    internal: true
+
+volumes:
+  staging_db:
+  staging_attachments:

@@ -9,3 +9,7 @@ target/
 .idea/
 .vscode/
 *.log
+
+/backend/db/192-b-member-management.sql
+/backend/db/diagnose-test-accounts.sql
+/deploy/vps/secrets/
