@@ -1,6 +1,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { DragEvent } from 'react'
+import AdSidebar from './AdSidebar'
+import type { AdSidebarProps } from './AdSidebar'
 import { InvitationInbox, ProjectCollaboration } from './Collaboration'
 import type { Member } from './Collaboration'
 import { getProjectStreamLimit, loadProjectTasks, startProjectTaskSync } from './projectTaskSync'
@@ -23,6 +25,7 @@ import { dashboardHref, myTasksHref, projectHref, projectTabHref, projectTabs, r
 import './TeamFlow.css'
 
 const compactWorkspaceQuery = '(max-width: 760px)'
+const workspaceAds: AdSidebarProps = { enabled: false, ad: null }
 
 type Project = {
   id: number
@@ -2070,6 +2073,7 @@ function App({ userId, onSessionExpired }: {
             </section>
         )}
       </main>
+      <AdSidebar {...workspaceAds} />
     </div>
   )
 }

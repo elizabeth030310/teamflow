@@ -27,6 +27,34 @@ html:has(.tf-account) {
 
 .tf-workspace[data-sidebar-open="false"] { grid-template-columns: minmax(0, 1fr); }
 
+.tf-ad-sidebar { display: none; }
+
+@media (min-width: 1440px) {
+  .tf-workspace:has(> .tf-ad-sidebar) {
+    grid-template-columns: minmax(0, 16rem) minmax(0, 1fr) 14rem;
+  }
+
+  .tf-workspace[data-sidebar-open="false"]:has(> .tf-ad-sidebar) {
+    grid-template-columns: minmax(0, 1fr) 14rem;
+  }
+
+  .tf-ad-sidebar {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+    margin: var(--tf-pad) var(--tf-pad) 0 0;
+    padding: 16px;
+    border: 1px solid var(--tf-border);
+    border-radius: var(--tf-radius);
+    background: var(--tf-surface);
+    overflow-wrap: anywhere;
+  }
+
+  .tf-ad-sidebar p { margin: 0; color: var(--tf-muted); font-size: 0.875rem; }
+  .tf-ad-sidebar .tf-ad-label { font-weight: 650; }
+  .tf-ad-sidebar a { color: var(--tf-blue); font-weight: 650; }
+}
+
 .tf-workspace-content {
   width: min(100%, 90rem);
   min-width: 0;

@@ -1,5 +1,10 @@
 # React + TypeScript + Vite
 
+## TeamFlow 광고 사이드바
+
+- `src/App.tsx`의 `workspaceAds`가 기능 플래그와 배너 데이터를 전달합니다. 활성화하려면 `enabled: true`와 `ad: { title, href, description? }`를 함께 설정합니다. 링크는 절대 HTTPS 주소를 사용하고 `description`은 생략할 수 있습니다.
+- 1440px 이상에서 유효한 배너가 있을 때만 오른쪽 열을 표시합니다. 기능 플래그와 데이터는 워크스페이스 첫 렌더 전에 확정하여 배너가 뒤늦게 삽입되면서 작업 영역의 너비가 바뀌지 않도록 합니다.
+
 ## TeamFlow 프로젝트 문서 서식
 
 - 193-D를 배포하려면 승인 후 `backend/db/193-d-project-page-content-format.sql`을 적용하고 백엔드와 프론트엔드를 순서대로 배포합니다. 마이그레이션은 기존 본문을 수정하지 않으며 기존 행의 형식을 `plain`으로 지정합니다. 편집 후에는 검증된 문서 구조를 `rich-v1` JSON으로 저장합니다. 193-B/C 화면은 서식 본문을 편집할 수 없으므로 배포 후 기존 탭을 새로고침합니다.

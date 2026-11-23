@@ -23,6 +23,7 @@ const hook = registerHooks({
 const { default: ScrollRegion } = await import('../src/ScrollRegion.tsx')
 const { default: AuthPage } = await import('../src/AuthPage.tsx')
 const { default: AdminDashboard } = await import('../src/AdminDashboard.tsx')
+const { default: AdSidebar } = await import('../src/AdSidebar.tsx')
 hook.deregister()
 
 test('board and calendar expose individually named, keyboard-focusable scroll regions', () => {
@@ -57,4 +58,31 @@ test('member administration exposes separate loading states and an audit filter'
   assert.match(markup, /role="status">감사 기록을 불러오는 중입니다/)
   assert.match(markup, /<label>변경 후 상태<select/)
   assert.match(markup, /aria-label="감사 기록 페이지"/)
+})
+
+test('workspace ads require an enabled flag, a title, and a safe destination', () => {
+  const ad = { title: '테스트 배너', href: 'https://example.com/' }
+  const cases = [
+    { enabled: false, ad },
+    { enabled: true, ad: null },
+    { enabled: true, ad: { ...ad, title: ' ' } },
+    ...['/relative', '//example.com/', 'javascript:alert(1)', 'http://example.com/', 'https://user@example.com/']
+      .map((href) => ({ enabled: true, ad: { ...ad, href } })),
+  ]
+  for (const props of cases) {
+    assert.equal(renderToStaticMarkup(createElement(AdSidebar, props)), '')
+  }
+})
+
+test('workspace ads identify sponsored content and protect new-tab navigation', () => {
+  const markup = renderToStaticMarkup(createElement(AdSidebar, {
+    enabled: true,
+    ad: { title: '테스트 배너', description: '배너 설명', href: 'https://example.com/' },
+  }))
+
+  assert.match(markup, /<aside[^>]*aria-label="광고"/)
+  assert.match(markup, />광고<\/p>/)
+  assert.match(markup, /href="https:\/\/example\.com\/" target="_blank" rel="sponsored noopener noreferrer"/)
+  assert.match(markup, /aria-label="테스트 배너 \(새 탭에서 열기\)"/)
+  assert.match(markup, />배너 설명<\/p>/)
 })
