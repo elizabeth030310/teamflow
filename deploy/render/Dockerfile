@@ -1,8 +1,30 @@
 FROM maven:3.9-eclipse-temurin-21 AS backend-build
 WORKDIR /build
+RUN printf '%s\n' \
+    '#!/bin/sh' \
+    'set -eu' \
+    'log_file=$(mktemp)' \
+    'trap "rm -f \"$log_file\"" EXIT' \
+    'for delay in 10 20 0; do' \
+    '    if mvn -B -ntp "$@" > "$log_file" 2>&1; then' \
+    '        cat "$log_file"' \
+    '        exit 0' \
+    '    else' \
+    '        status=$?' \
+    '    fi' \
+    '    cat "$log_file"' \
+    '    if [ "$delay" -eq 0 ] || ! grep -Eqi "status code: 429|429[ ,]+Too Many Requests" "$log_file"; then' \
+    '        exit "$status"' \
+    '    fi' \
+    '    printf "Maven received HTTP 429. Retrying in %s seconds.\n" "$delay" >&2' \
+    '    sleep "$delay"' \
+    'done' \
+    > /usr/local/bin/mvn-with-backoff \
+    && chmod +x /usr/local/bin/mvn-with-backoff
 COPY backend/pom.xml ./
+RUN mvn-with-backoff dependency:go-offline
 COPY backend/src/main/ ./src/main/
-RUN mvn -B -ntp -Dmaven.test.skip=true package
+RUN mvn-with-backoff -Dmaven.test.skip=true package
 
 FROM node:24-alpine AS frontend-build
 WORKDIR /build
