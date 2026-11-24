@@ -1,5 +1,7 @@
 package com.teamflow.backend.service;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -11,6 +13,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Component
 public class SignupCodeMailer {
+    private static final Logger log = LoggerFactory.getLogger(SignupCodeMailer.class);
     private static final String SUBJECT = "TeamFlow 회원가입 인증번호";
 
     private final ObjectProvider<JavaMailSender> sender;
@@ -33,6 +36,11 @@ public class SignupCodeMailer {
         this.host = host;
         this.from = from;
         this.secureTransport = startTls || (!smtpAuth && ("127.0.0.1".equals(host) || "::1".equals(host)));
+        switch (provider) {
+            case "brevo" -> log.info("Signup mail provider=brevo");
+            case "smtp" -> log.info("Signup mail provider=smtp");
+            case null, default -> log.warn("Signup mail provider=unsupported");
+        }
     }
 
     public void requireAvailable() {
