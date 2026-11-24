@@ -17,7 +17,7 @@ import java.util.regex.Pattern;
         "spring.jpa.hibernate.ddl-auto=update",
         "spring.jpa.defer-datasource-initialization=true",
         "spring.sql.init.mode=always",
-        "spring.sql.init.schema-locations=file:db/187-2-notifications.sql,file:db/189-a3-signup-verification.sql,file:db/191-a-task-comment-replies.sql,file:db/191-c-comment-reply-notifications.sql,file:db/192-a-8-user-role.sql,classpath:member-management-test-schema.sql,classpath:admin-test-account.sql",
+        "spring.sql.init.schema-locations=file:db/187-2-notifications.sql,file:db/189-a3-signup-verification.sql,file:db/191-a-task-comment-replies.sql,file:db/191-c-comment-reply-notifications.sql,file:db/192-a-8-user-role.sql,classpath:member-management-test-schema.sql,classpath:signup-email-test-schema.sql,classpath:admin-test-account.sql",
         "teamflow.attachments.storage-root=",
         "teamflow.signup.hmac-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
         "spring.mail.host=",

@@ -55,7 +55,8 @@ public class ProjectMemberController {
         static InvitationResponse from(ProjectMember member) {
             return new InvitationResponse(member.getId(), member.getProject().getId(),
                     member.getProject().getName(), member.getUser().getId(),
-                    member.getUser().getEmail(), member.getStatus());
+                    member.getUser().getAccountStatus() == User.Status.WITHDRAWN ? "" : member.getUser().getEmail(),
+                    member.getStatus());
         }
     }
 
@@ -81,6 +82,7 @@ public class ProjectMemberController {
         Long userId = access.currentUserId(session);
         Project project = access.lockOwnedProject(projectId, userId);
         User invitee = users.findByEmail(request.email())
+                .filter(user -> user.getAccountStatus() == User.Status.ACTIVE)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "등록된 사용자를 찾을 수 없습니다."));
         if (userId.equals(invitee.getId()) || members.existsByProjectIdAndUserId(projectId, invitee.getId())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "이미 소유자이거나 초대 기록이 있는 사용자입니다.");

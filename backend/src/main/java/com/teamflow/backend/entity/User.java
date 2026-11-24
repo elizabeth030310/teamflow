@@ -36,8 +36,7 @@ public class User {
     @Column(nullable = false, length = 50)
     private String name;
 
-    // 이메일: 중복 가입 방지
-    @Column(nullable = false, unique = true, length = 255)
+    @Column(nullable = false, length = 255)
     private String email;
 
     // 암호화된 비밀번호 저장

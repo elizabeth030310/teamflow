@@ -37,7 +37,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.after;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -144,6 +146,13 @@ class BackendApplicationTests {
 		mvc.perform(get("/api/auth/me").session(memberSession)).andExpect(status().isUnauthorized());
 		mvc.perform(get("/api/projects").session(memberSession)).andExpect(status().isUnauthorized());
 		login(mvc, member.getEmail(), password).andExpect(status().isUnauthorized());
+		requestCode(mvc, member.getEmail(), "192.0.2.45").andExpect(status().isAccepted())
+				.andExpect(jsonPath("$.resendAfterSeconds").value(60));
+		String suspendedEmailKey = emailKey(member.getEmail());
+		assertThat(jdbc.queryForObject("SELECT code_mac FROM signup_verifications WHERE email_key = ?",
+				byte[].class, suspendedEmailKey)).isNull();
+		complete(mvc, member.getEmail(), password, "000000").andExpect(status().isUnprocessableContent());
+		verify(mailer, after(150).never()).send(eq(member.getEmail()), anyString());
 
 		changeMemberStatus(mvc, adminSession, change, "ACTIVE", 1, "resolved").andExpect(status().isNoContent());
 		expectMemberStats(mvc, adminSession, stats, activeMembers, 0, 0);
@@ -156,6 +165,18 @@ class BackendApplicationTests {
 		Project retainedProject = new Project("Retained project", "Collaboration history");
 		retainedProject.setOwner(member);
 		long projectId = projects.save(retainedProject).getId();
+		User otherOwner = users.findById(3L).orElseThrow();
+		Project sharedProject = new Project("Shared project", "Membership history");
+		sharedProject.setOwner(otherOwner);
+		long sharedId = projects.save(sharedProject).getId();
+		jdbc.update("INSERT INTO project_members (project_id, user_id, status) VALUES (?, ?, 'ACCEPTED')",
+				sharedId, member.getId());
+		Project invitationProject = new Project("Pending invitation", "Invitation history");
+		invitationProject.setOwner(otherOwner);
+		long invitationProjectId = projects.save(invitationProject).getId();
+		jdbc.update("INSERT INTO project_members (project_id, user_id, status) VALUES (?, ?, 'PENDING')",
+				invitationProjectId, member.getId());
+
 		changeMemberStatus(mvc, adminSession, change, "WITHDRAWN", 2, "withdrawal").andExpect(status().isNoContent());
 		expectMemberStats(mvc, adminSession, stats, activeMembers - 1, 0, 1);
 		mvc.perform(get("/api/auth/me").session(restored)).andExpect(status().isUnauthorized());
@@ -193,6 +214,58 @@ class BackendApplicationTests {
 		mvc.perform(get(auditPage).session(adminSession).param("limit", "101")).andExpect(status().isBadRequest());
 		mvc.perform(get(auditPage).session(adminSession).param("cursor", "0")).andExpect(status().isBadRequest());
 		mvc.perform(get(auditPage).session(adminSession).param("toStatus", "UNKNOWN")).andExpect(status().isBadRequest());
+
+		openResendWindow(suspendedEmailKey);
+		String email = member.getEmail();
+		String caseVariant = email.toUpperCase(java.util.Locale.ROOT);
+		requestCode(mvc, caseVariant, "192.0.2.45").andExpect(status().isAccepted())
+				.andExpect(jsonPath("$.resendAfterSeconds").value(60));
+		String code = deliveredCode(email, 1);
+		String newPassword = "different-password";
+		try (var executor = Executors.newFixedThreadPool(2)) {
+			var first = executor.submit(() -> complete(mvc, caseVariant, newPassword, code)
+					.andReturn().getResponse().getStatus());
+			var second = executor.submit(() -> complete(mvc, email, newPassword, code)
+					.andReturn().getResponse().getStatus());
+			assertThat(List.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS)))
+					.containsExactlyInAnyOrder(201, 422);
+		}
+
+		User replacement = users.findByEmail(email).orElseThrow();
+		assertThat(replacement.getId()).isNotEqualTo(member.getId());
+		assertThat(replacement.getRole()).isEqualTo(User.Role.USER);
+		assertThat(replacement.getAccountStatus()).isEqualTo(User.Status.ACTIVE);
+		assertThat(replacement.getAccessRevision()).isZero();
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE lower(email) = lower(?)",
+				Long.class, email)).isEqualTo(2L);
+		User historical = users.findById(member.getId()).orElseThrow();
+		assertThat(historical.getEmail()).isEqualTo(email);
+		assertThat(historical.getAccountStatus()).isEqualTo(User.Status.WITHDRAWN);
+		assertThat(historical.getAccessRevision()).isEqualTo(3L);
+		assertThatThrownBy(() -> users.saveAndFlush(new User("Duplicate", caseVariant, historical.getPassword())))
+				.isInstanceOf(DataIntegrityViolationException.class);
+
+		login(mvc, email, password).andExpect(status().isUnauthorized());
+		MockHttpSession replacementSession = (MockHttpSession) login(mvc, caseVariant, newPassword)
+				.andExpect(status().isOk()).andExpect(jsonPath("$.id").value(replacement.getId()))
+				.andReturn().getRequest().getSession(false);
+		mvc.perform(get("/api/projects").session(restored)).andExpect(status().isUnauthorized());
+		mvc.perform(get("/api/projects").session(replacementSession)).andExpect(status().isOk())
+				.andExpect(jsonPath("$.length()").value(0));
+		mvc.perform(get("/api/projects/invitations").session(replacementSession)).andExpect(status().isOk())
+				.andExpect(jsonPath("$.length()").value(0));
+		mvc.perform(get("/api/projects/{id}/invitations", invitationProjectId).session(adminSession))
+				.andExpect(status().isOk()).andExpect(jsonPath("$[0].userId").value(member.getId()))
+				.andExpect(jsonPath("$[0].email").value(""));
+		mvc.perform(post("/api/projects/{id}/invitations", invitationProjectId).session(adminSession)
+				.contentType(MediaType.APPLICATION_JSON).content("""
+						{"email":"%s"}
+						""".formatted(email)))
+				.andExpect(status().isCreated()).andExpect(jsonPath("$.userId").value(replacement.getId()));
+		assertThat(projects.findByIdAndOwnerId(projectId, member.getId())).isPresent();
+		assertThat(jdbc.queryForObject("""
+				SELECT count(*) FROM project_members WHERE project_id = ? AND user_id = ? AND status = 'ACCEPTED'
+				""", Long.class, sharedId, member.getId())).isEqualTo(1L);
 
 		try {
 			jdbc.update("UPDATE users SET account_status = 'SUSPENDED', access_revision = 1 WHERE id = 3");
@@ -418,7 +491,9 @@ class BackendApplicationTests {
 		requestCode(mvc, email).andExpect(status().isAccepted())
 				.andExpect(jsonPath("$.resendAfterSeconds").value(60));
 		verify(mailer).requireAvailable();
-		org.mockito.Mockito.verifyNoMoreInteractions(mailer);
+		verify(mailer, never()).send(eq(email), anyString());
+		assertThat(jdbc.queryForObject("SELECT code_mac FROM signup_verifications WHERE email_key = ?",
+				byte[].class, emailKey(email))).isNull();
 		mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
 				.content("""
 						{"email":"%s","password":"password123"}
@@ -441,7 +516,8 @@ class BackendApplicationTests {
 		String email = newEmail();
 		doThrow(new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE))
 				.when(mailer).send(eq(email), anyString());
-		requestCode(mvc, email).andExpect(status().isServiceUnavailable());
+		requestCode(mvc, email).andExpect(status().isAccepted());
+		verify(mailer, timeout(3000)).send(eq(email), anyString());
 		requestCode(mvc, email).andExpect(status().isTooManyRequests());
 		assertThat(users.existsByEmail(email)).isFalse();
 	}
@@ -482,7 +558,7 @@ class BackendApplicationTests {
 
 	private String deliveredCode(String email, int deliveries) {
 		var argument = ArgumentCaptor.forClass(String.class);
-		verify(mailer, times(deliveries)).send(eq(email), argument.capture());
+		verify(mailer, timeout(3000).times(deliveries)).send(eq(email), argument.capture());
 		return argument.getValue();
 	}
 

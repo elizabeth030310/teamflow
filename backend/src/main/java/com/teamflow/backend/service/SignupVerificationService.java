@@ -2,7 +2,12 @@ package com.teamflow.backend.service;
 
 import com.teamflow.backend.entity.User;
 import com.teamflow.backend.repository.UserRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.task.TaskExecutor;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -31,6 +36,8 @@ import java.util.UUID;
 
 @Service
 public class SignupVerificationService {
+    private static final Logger logger = LoggerFactory.getLogger(SignupVerificationService.class);
+
     public static final int RESEND_SECONDS = 60;
     private static final int EXPIRY_SECONDS = 300;
     private static final int MAX_ATTEMPTS = 5;
@@ -40,17 +47,20 @@ public class SignupVerificationService {
     private final UserRepository users;
     private final PasswordEncoder passwords;
     private final SignupCodeMailer mailer;
+    private final TaskExecutor mailExecutor;
     private final SecureRandom random = new SecureRandom();
     private final SecretKeySpec key;
 
     public SignupVerificationService(JdbcTemplate jdbc, PlatformTransactionManager transactionManager,
                                      UserRepository users, PasswordEncoder passwords, SignupCodeMailer mailer,
+                                     @Qualifier("signupMailExecutor") TaskExecutor mailExecutor,
                                      @Value("${teamflow.signup.hmac-key}") String configuredKey) {
         this.jdbc = jdbc;
         this.transaction = new TransactionTemplate(transactionManager);
         this.users = users;
         this.passwords = passwords;
         this.mailer = mailer;
+        this.mailExecutor = mailExecutor;
         this.key = parseKey(configuredKey);
     }
 
@@ -85,8 +95,18 @@ public class SignupVerificationService {
                     timestamp(now.plusSeconds(EXPIRY_SECONDS)), timestamp(now.plusSeconds(RESEND_SECONDS)));
             return registered ? null : generated;
         });
-        if (code != null) {
-            mailer.send(email, code);
+        try {
+            mailExecutor.execute(() -> {
+                if (code != null) {
+                    try {
+                        mailer.send(email, code);
+                    } catch (ResponseStatusException exception) {
+                        logger.warn("Signup code delivery failed");
+                    }
+                }
+            });
+        } catch (TaskRejectedException exception) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE);
         }
     }
 
@@ -110,7 +130,9 @@ public class SignupVerificationService {
             jdbc.update("UPDATE signup_verifications SET code_mac = NULL WHERE email_key = ?", emailKey);
             return jdbc.query("""
                     INSERT INTO users (name, email, password, created_at)
-                    VALUES (?, ?, ?, ?) ON CONFLICT (email) DO NOTHING RETURNING id
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT (lower(email)) WHERE account_status <> 'WITHDRAWN'
+                    DO NOTHING RETURNING id
                     """, (result, row) -> result.getLong(1),
                     name, email, passwords.encode(password), LocalDateTime.now())
                     .stream().findFirst().flatMap(users::findById).orElse(null);

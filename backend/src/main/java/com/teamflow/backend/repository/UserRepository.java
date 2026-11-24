@@ -43,11 +43,17 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<User> findOneById(Long id);
 
-    // 이메일로 회원 조회
-    Optional<User> findByEmail(String email);
+    @Query(value = """
+            SELECT * FROM users WHERE lower(email) = lower(:email)
+              AND account_status <> 'WITHDRAWN'
+            """, nativeQuery = true)
+    Optional<User> findByEmail(@Param("email") String email);
 
-    // 이메일 중복 여부 확인
-    boolean existsByEmail(String email);
+    @Query(value = """
+            SELECT EXISTS (SELECT 1 FROM users WHERE lower(email) = lower(:email)
+              AND account_status <> 'WITHDRAWN')
+            """, nativeQuery = true)
+    boolean existsByEmail(@Param("email") String email);
 
     @Transactional
     @Modifying
