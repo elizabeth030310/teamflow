@@ -7,6 +7,9 @@ if [[ ! ${PORT:-} =~ ^[0-9]{4,5}$ ]] || (( 10#$PORT < 1024 || 10#$PORT > 65535 |
 fi
 
 export TEAMFLOW_ATTACHMENT_STORAGE_ROOT=''
+
+mkdir -p /tmp/teamflow-nginx
+
 sed "s/__PORT__/$PORT/g" /app/nginx.conf > /tmp/teamflow-nginx/default.conf
 nginx -e stderr -t -c /tmp/teamflow-nginx/default.conf
 
