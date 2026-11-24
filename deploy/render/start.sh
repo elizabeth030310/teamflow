@@ -28,15 +28,27 @@ trap stop_services EXIT
 trap 'exit 0' TERM INT
 
 ready=false
-for attempt in {1..120}; do
-    kill -0 "$backend_pid" 2>/dev/null || exit 1
+echo 'Waiting for Spring Boot to start...'
+
+for attempt in {1..300}; do
+    if ! kill -0 "$backend_pid" 2>/dev/null; then
+        echo 'Spring Boot exited before becoming ready.' >&2
+        exit 1
+    fi
+
     if (echo > /dev/tcp/127.0.0.1/8081) 2>/dev/null; then
         ready=true
         break
     fi
     sleep 1
 done
-[[ $ready == true ]] || exit 1
+
+if [[ $ready != true ]]; then
+    echo 'Spring Boot startup timed out.' >&2
+    exit 1
+fi
+
+echo 'Spring Boot is ready. Starting Nginx...'
 
 nginx -e stderr -c /tmp/teamflow-nginx/default.conf -g 'daemon off;' &
 gateway_pid=$!
