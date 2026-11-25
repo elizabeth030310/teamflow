@@ -1,5 +1,6 @@
 package com.teamflow.backend.controller;
 
+import com.teamflow.backend.config.BrowserRequestOrigin;
 import com.teamflow.backend.service.ProjectAccess;
 import com.teamflow.backend.service.ProjectEventStreams;
 import jakarta.servlet.http.HttpServletRequest;
@@ -11,7 +12,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.cors.CorsUtils;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -19,10 +19,12 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class ProjectEventController {
     private final ProjectAccess access;
     private final ProjectEventStreams streams;
+    private final BrowserRequestOrigin origins;
 
-    public ProjectEventController(ProjectAccess access, ProjectEventStreams streams) {
+    public ProjectEventController(ProjectAccess access, ProjectEventStreams streams, BrowserRequestOrigin origins) {
         this.access = access;
         this.streams = streams;
+        this.origins = origins;
     }
 
     @GetMapping(path = "/api/projects/{projectId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -43,7 +45,7 @@ public class ProjectEventController {
         if (!"GET".equals(request.getMethod())) {
             throw new ResponseStatusException(HttpStatus.METHOD_NOT_ALLOWED);
         }
-        if ("cross-site".equals(request.getHeader("Sec-Fetch-Site")) || !hasAllowedOrigin(request)) {
+        if ("cross-site".equals(request.getHeader("Sec-Fetch-Site")) || !origins.isAllowed(request)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN);
         }
 
@@ -59,13 +61,5 @@ public class ProjectEventController {
                 .cacheControl(CacheControl.noStore())
                 .header("X-Accel-Buffering", "no")
                 .body(emitter);
-    }
-
-    private boolean hasAllowedOrigin(HttpServletRequest request) {
-        try {
-            return !CorsUtils.isCorsRequest(request);
-        } catch (IllegalArgumentException exception) {
-            return false;
-        }
     }
 }

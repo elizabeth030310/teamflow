@@ -27,7 +27,7 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain securityFilterChain(
-            HttpSecurity http, AccountAccess accounts) throws Exception {
+            HttpSecurity http, AccountAccess accounts, BrowserRequestOrigin origins) throws Exception {
 
         AuthorizationManager<RequestAuthorizationContext> activeAccount = (authentication, context) -> {
             requireAccount(accounts, context);
@@ -36,7 +36,7 @@ public class SecurityConfig {
 
         http
                 .csrf(csrf -> csrf.disable())
-                .addFilterBefore(new SameOriginRequestFilter(), CsrfFilter.class)
+                .addFilterBefore(new SameOriginRequestFilter(origins), CsrfFilter.class)
 
                 .authorizeHttpRequests(auth -> auth
 

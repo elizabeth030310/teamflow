@@ -8,7 +8,8 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class SameOriginRequestFilterTests {
-    private final SameOriginRequestFilter filter = new SameOriginRequestFilter();
+    private final SameOriginRequestFilter filter =
+            new SameOriginRequestFilter(new BrowserRequestOrigin("https://preview.example, https://app.example"));
 
     @Test
     void permitsReadRequestsAndSameOriginChanges() throws Exception {
@@ -16,6 +17,16 @@ class SameOriginRequestFilterTests {
         assertAllowed("OPTIONS", null, null, null);
         assertAllowed("POST", "1", "https://teamflow.example", "same-origin");
         assertAllowed("DELETE", "1", null, null);
+    }
+
+    @Test
+    void requiresExactFrontendOriginAndSameOriginFetchMetadataAtTheProxy() throws Exception {
+        assertAllowed("POST", "1", "https://preview.example", "same-origin");
+        assertAllowed("POST", "1", "https://app.example", "same-origin");
+        assertDenied("POST", "1", "https://unlisted.example", "same-origin");
+        assertDenied("POST", "1", "https://preview.example", null);
+        assertDenied("POST", "1", "https://preview.example", "same-site");
+        assertDenied("POST", "1", "https://preview.example", "cross-site");
     }
 
     @Test
