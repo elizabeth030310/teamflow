@@ -27,10 +27,13 @@ export class PageRequestError extends Error {
   }
 }
 
-export function projectPageApi(projectId: number, signal: AbortSignal) {
+const uploadSegmentLength = 400_000
+
+export function projectPageApi(projectId: number, signal: AbortSignal,
+  nodeTransport = import.meta.env?.VITE_TEAMFLOW_NODE_API === '1') {
   const base = `/api/projects/${projectId}/pages`
 
-  async function request(path: string, method = 'GET', input?: PageInput) {
+  async function request(path: string, method = 'GET', input?: object) {
     const response = await apiFetch(`${base}${path}`, {
       method,
       credentials: 'include',
@@ -43,16 +46,56 @@ export function projectPageApi(projectId: number, signal: AbortSignal) {
   }
 
   async function get(pageId: number): Promise<ProjectPage> {
-    return (await request(`/${pageId}`)).json()
+    const result = await (await request(`/${pageId}${nodeTransport ? '?segmented=1' : ''}`)).json() as
+      ProjectPage & { contentLength?: number }
+    if (result.contentLength === undefined) return result
+    const { contentLength, ...page } = result
+    if (!Number.isSafeInteger(contentLength) || contentLength < 1 || contentLength > 6_000_000) throw new PageRequestError(502)
+    const segments: string[] = []
+    let offset: number | null = 0
+    while (offset !== null) {
+      const query = new URLSearchParams({ offset: String(offset), version: page.updatedAt })
+      const segment = await (await request(`/${pageId}/content?${query}`)).json() as
+        { content: string; nextOffset: number | null }
+      if (typeof segment.content !== 'string' || !segment.content.length ||
+          (segment.nextOffset !== null && (!Number.isSafeInteger(segment.nextOffset) ||
+            segment.nextOffset <= offset || segment.nextOffset >= contentLength))) throw new PageRequestError(502)
+      segments.push(segment.content)
+      offset = segment.nextOffset
+    }
+    return { ...page, content: segments.join('') }
+  }
+
+  async function save(path: string, method: 'POST' | 'PUT', input: PageInput): Promise<ProjectPage> {
+    if (!nodeTransport || input.contentFormat !== 'rich-v1' ||
+        new TextEncoder().encode(JSON.stringify(input)).byteLength <= 3_500_000) {
+      return (await request(path, method, input)).json()
+    }
+
+    const { uploadId } = await (await request('/uploads', 'POST')).json() as { uploadId: string }
+    const { content, ...metadata } = input
+    let part = 0
+    for (let offset = 0; offset < content.length;) {
+      let end = Math.min(content.length, offset + uploadSegmentLength)
+      const trailing = content.charCodeAt(end - 1)
+      if (end < content.length && trailing >= 0xd800 && trailing <= 0xdbff) end -= 1
+      await request(`/uploads/${encodeURIComponent(uploadId)}/${part}`, 'PUT', { content: content.slice(offset, end) })
+      offset = end
+      part += 1
+    }
+    const saved = await (await request(path, method, {
+      ...metadata, contentUploadId: uploadId, contentUploadParts: part, contentUploadSize: content.length,
+    })).json() as Omit<ProjectPage, 'content'>
+    return { ...saved, content }
   }
 
   return {
     tree: async (): Promise<PageTreeEntry[]> => (await request('/tree')).json(),
     get,
-    create: async (input: PageInput): Promise<ProjectPage> => (await request('', 'POST', input)).json(),
+    create: (input: PageInput): Promise<ProjectPage> => save('', 'POST', input),
     rename: async (pageId: number, title: string): Promise<ProjectPage> => {
       const { parentPageId, content, contentFormat, updatedAt } = await get(pageId)
-      return (await request(`/${pageId}`, 'PUT', { parentPageId, title, content, contentFormat, expectedUpdatedAt: updatedAt })).json()
+      return save(`/${pageId}`, 'PUT', { parentPageId, title, content, contentFormat, expectedUpdatedAt: updatedAt })
     },
     saveContent: async (pageId: number, content: string, baseContent: string,
       contentFormat?: PageContentFormat, baseContentFormat?: PageContentFormat): Promise<ProjectPage> => {
@@ -61,7 +104,7 @@ export function projectPageApi(projectId: number, signal: AbortSignal) {
       if (page.content === content && format === (contentFormat ?? 'plain')) return page
       if (page.content !== baseContent || format !== (baseContentFormat ?? 'plain')) throw new PageRequestError(409)
       const { parentPageId, title, updatedAt } = page
-      return (await request(`/${pageId}`, 'PUT', { parentPageId, title, content, contentFormat, expectedUpdatedAt: updatedAt })).json()
+      return save(`/${pageId}`, 'PUT', { parentPageId, title, content, contentFormat, expectedUpdatedAt: updatedAt })
     },
     remove: async (pageId: number) => { await request(`/${pageId}`, 'DELETE') },
   }

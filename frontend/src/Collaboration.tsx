@@ -1,5 +1,5 @@
 import { apiFetch } from './apiFetch.ts'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 
 export type Member = {
@@ -55,14 +55,14 @@ type ListState<Item> =
   | { status: 'error'; message: string }
   | { status: 'ready'; items: Item[] }
 
-function useProjectList<Item>(path: string, fallback: string, refreshKey?: string) {
+function useProjectList<Item>(path: string, fallback: string, refreshKey?: string | number) {
   const [state, setState] = useState<ListState<Item>>({ status: 'loading' })
   const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     const controller = new AbortController()
 
-    request<Item[]>(path, { signal: controller.signal })
+    request<Item[]>(path, { signal: controller.signal, cache: 'no-store' })
       .then((items) => {
         if (!controller.signal.aborted) setState({ status: 'ready', items })
       })
@@ -105,11 +105,12 @@ function ListFeedback({ state, loading, reload }: {
   )
 }
 
-export function InvitationInbox({ workspaceReady, onAccept }: {
+export function InvitationInbox({ workspaceReady, onAccept, refreshKey }: {
   workspaceReady: boolean
   onAccept: (projectId: number) => Promise<void>
+  refreshKey: number
 }) {
-  const invitations = useProjectList<Invitation>('/invitations', '받은 초대를 불러오지 못했습니다.')
+  const invitations = useProjectList<Invitation>('/invitations', '받은 초대를 불러오지 못했습니다.', refreshKey)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -167,7 +168,7 @@ export function InvitationInbox({ workspaceReady, onAccept }: {
 
   return (
     <section className="tf-panel tf-inbox" aria-labelledby="invitations-title">
-      <h2 id="invitations-title">받은 프로젝트 초대</h2>
+      <h2 id="invitations-title" tabIndex={-1}>받은 프로젝트 초대</h2>
       <ListFeedback state={invitations.state} loading="받은 초대를 불러오는 중입니다." reload={invitations.reload} />
       {invitations.state.status === 'ready' && (
         <>
@@ -244,6 +245,8 @@ function ProjectInvitations({ projectId }: { projectId: number }) {
   const invitations = useProjectList<Invitation>(path, '보낸 초대를 불러오지 못했습니다.')
   const [email, setEmail] = useState('')
   const [sending, setSending] = useState(false)
+  const resendLock = useRef(false)
+  const [resendingId, setResendingId] = useState<number | null>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
@@ -280,6 +283,34 @@ function ProjectInvitations({ projectId }: { projectId: number }) {
     }
   }
 
+  async function resend(invitation: Invitation) {
+    if (resendLock.current || invitation.status !== 'PENDING') return
+
+    resendLock.current = true
+    setResendingId(invitation.id)
+    setError('')
+    setNotice('')
+    try {
+      const result = await request<Invitation>(`${path}/${invitation.id}/resend`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(15_000),
+      })
+      setNotice(`${result.email}에 앱 초대 알림을 다시 보냈습니다.`)
+    } catch (failure) {
+      const status = failure instanceof ApiError ? failure.status : null
+      const messages: Record<number, string> = {
+        404: '초대를 찾을 수 없거나 대상 계정이 활성 상태가 아닙니다.',
+        409: '이미 처리된 초대입니다.',
+        429: '최근에 보낸 초대입니다. 잠시 후 다시 시도해 주세요.',
+      }
+      setError(errorMessage(failure, messages[status ?? 0] ?? '초대를 다시 보내지 못했습니다. 다시 시도해 주세요.'))
+      if (status === 404 || status === 409) invitations.reload()
+    } finally {
+      resendLock.current = false
+      setResendingId(null)
+    }
+  }
+
   return (
     <details className="tf-invitation-management">
       <summary>초대 관리</summary>
@@ -305,7 +336,15 @@ function ProjectInvitations({ projectId }: { projectId: number }) {
               {invitations.state.items.map((invitation) => (
                 <li key={invitation.id}>
                   <span>{invitation.email}</span>
-                  <span className="tf-badge tf-date">{invitationLabels[invitation.status]}</span>
+                  <div className="tf-collaboration-actions">
+                    <span className="tf-badge tf-date">{invitationLabels[invitation.status]}</span>
+                    {invitation.status === 'PENDING' && <button type="button"
+                      aria-label={`${invitation.email || '대상 계정'} 초대 다시 보내기`}
+                      disabled={resendingId !== null || !invitation.email}
+                      onClick={() => void resend(invitation)}>
+                      {resendingId === invitation.id ? '보내는 중…' : '다시 보내기'}
+                    </button>}
+                  </div>
                 </li>
               ))}
             </ul>

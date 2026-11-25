@@ -1,0 +1,8 @@
+{
+  "extends": "./deploy/vercel/functions/tsconfig.json",
+  "include": [
+    "api/**/*.ts",
+    "deploy/vercel/functions/api/**/*.ts",
+    "deploy/vercel/functions/src/**/*.ts"
+  ]
+}

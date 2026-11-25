@@ -25,4 +25,7 @@ public interface ProjectMemberRepository extends JpaRepository<ProjectMember, Lo
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<ProjectMember> findByIdAndUserId(Long id, Long userId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<ProjectMember> findByIdAndProjectId(Long id, Long projectId);
 }

@@ -1,0 +1,4 @@
+node_modules/
+.preview-deploy/
+.vercel/
+.env*

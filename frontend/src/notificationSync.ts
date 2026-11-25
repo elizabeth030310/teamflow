@@ -1,9 +1,8 @@
-export type NotificationItem = {
+import { startVisiblePolling } from './visiblePolling.ts'
+
+type NotificationDetails = {
   id: number
   projectId: number
-  taskId: number
-  taskTitle: string
-  kind: 'ASSIGNMENT' | 'COMMENT' | 'COMMENT_REPLY' | 'DUE_SOON' | 'OVERDUE'
   actorName?: string | null
   parentCommentId?: number | null
   replyCommentId?: number | null
@@ -11,6 +10,17 @@ export type NotificationItem = {
   createdAt: string
   read: boolean
 }
+
+export type TaskNotification = NotificationDetails & {
+  taskId: number
+  taskTitle: string
+  kind: 'ASSIGNMENT' | 'COMMENT' | 'COMMENT_REPLY' | 'DUE_SOON' | 'OVERDUE'
+}
+
+export type NotificationItem = TaskNotification | (NotificationDetails & {
+  kind: 'PROJECT_INVITATION'
+  projectName: string
+})
 
 export type NotificationInbox = {
   items: NotificationItem[]
@@ -24,7 +34,7 @@ export function startNotificationSync(
   fail: (error: unknown) => void,
 ) {
   const controller = new AbortController()
-  const source = new EventSource('/api/notifications/events')
+  const source = import.meta.env?.VITE_TEAMFLOW_NODE_API === '1' ? null : new EventSource('/api/notifications/events')
   let running = false
   let pending = false
 
@@ -49,17 +59,20 @@ export function startNotificationSync(
     }
   }
 
-  source.addEventListener('open', refresh)
-  source.addEventListener('notifications-changed', refresh)
-  const timer = setInterval(refresh, 30_000)
+  source?.addEventListener('open', refresh)
+  source?.addEventListener('notifications-changed', refresh)
+  const stopPolling = source ? (() => {
+    const timer = setInterval(refresh, 30_000)
+    return () => clearInterval(timer)
+  })() : startVisiblePolling(refresh, 30_000)
   void refresh()
 
   return {
     refresh,
     close() {
       controller.abort()
-      source.close()
-      clearInterval(timer)
+      source?.close()
+      stopPolling()
     },
   }
 }

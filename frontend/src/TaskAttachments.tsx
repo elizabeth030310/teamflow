@@ -1,4 +1,5 @@
 import { apiFetch } from './apiFetch.ts'
+import { startVisiblePolling } from './visiblePolling.ts'
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 
@@ -74,9 +75,15 @@ export default function TaskAttachments({ taskId, userId, revision, connectionRe
   const fileError = validationError(file)
 
   useEffect(() => {
-    const interval = window.setInterval(() => setLocalRevision((previous) => previous + 1), 12_000)
+    const refresh = () => setLocalRevision((previous) => previous + 1)
+    const interval = import.meta.env.VITE_TEAMFLOW_NODE_API === '1'
+      ? startVisiblePolling(refresh, 12_000)
+      : (() => {
+        const timer = window.setInterval(refresh, 12_000)
+        return () => window.clearInterval(timer)
+      })()
     return () => {
-      window.clearInterval(interval)
+      interval()
       activeAction.current?.abort()
     }
   }, [])
@@ -125,11 +132,16 @@ export default function TaskAttachments({ taskId, userId, revision, connectionRe
 
     try {
       let response: Response
-      const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(30_000)])
+      const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(action.type === 'upload' ? 120_000 : 30_000)])
       if (action.type === 'upload') {
-        const form = new FormData()
-        form.append('file', action.file)
-        response = await apiFetch(endpoint, { method: 'POST', credentials: 'include', body: form, signal })
+        if (import.meta.env.VITE_TEAMFLOW_NODE_API === '1') {
+          const { uploadAttachment } = await import('./attachmentUpload.ts')
+          response = await uploadAttachment(endpoint, action.file, signal)
+        } else {
+          const form = new FormData()
+          form.append('file', action.file)
+          response = await apiFetch(endpoint, { method: 'POST', credentials: 'include', body: form, signal })
+        }
       } else {
         const itemUrl = `${endpoint}/${action.attachment.id}`
         const downloading = action.type === 'download'

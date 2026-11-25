@@ -7,12 +7,15 @@ import com.teamflow.backend.entity.User;
 import com.teamflow.backend.repository.ProjectMemberRepository;
 import com.teamflow.backend.repository.UserRepository;
 import com.teamflow.backend.service.ProjectAccess;
+import com.teamflow.backend.service.NotificationService;
 import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -28,11 +31,14 @@ public class ProjectMemberController {
     private final ProjectAccess access;
     private final ProjectMemberRepository members;
     private final UserRepository users;
+    private final NotificationService notifications;
 
-    public ProjectMemberController(ProjectAccess access, ProjectMemberRepository members, UserRepository users) {
+    public ProjectMemberController(ProjectAccess access, ProjectMemberRepository members, UserRepository users,
+            NotificationService notifications) {
         this.access = access;
         this.members = members;
         this.users = users;
+        this.notifications = notifications;
     }
 
     public enum Role {
@@ -87,7 +93,26 @@ public class ProjectMemberController {
         if (userId.equals(invitee.getId()) || members.existsByProjectIdAndUserId(projectId, invitee.getId())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "이미 소유자이거나 초대 기록이 있는 사용자입니다.");
         }
-        return InvitationResponse.from(members.save(new ProjectMember(project, invitee)));
+        ProjectMember member = members.save(new ProjectMember(project, invitee));
+        notifications.publishInvitation(member.getId(), invitee.getId());
+        return InvitationResponse.from(member);
+    }
+
+    @PostMapping("/{projectId}/invitations/{invitationId}/resend")
+    @Transactional
+    public InvitationResponse resend(@PathVariable Long projectId, @PathVariable Long invitationId,
+            HttpSession session) {
+        access.requireOwner(projectId, access.currentUserId(session));
+        ProjectMember member = members.findByIdAndProjectId(invitationId, projectId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "초대를 찾을 수 없습니다."));
+        requirePending(member);
+        Long recipientId = member.getUser().getId();
+        users.findOneById(recipientId).filter(user -> user.getAccountStatus() == User.Status.ACTIVE)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "활성 계정을 찾을 수 없습니다."));
+        if (!notifications.publishInvitation(invitationId, recipientId)) {
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "1분 뒤 다시 시도해 주세요.");
+        }
+        return InvitationResponse.from(member);
     }
 
     @GetMapping("/{projectId}/invitations")
@@ -99,9 +124,11 @@ public class ProjectMemberController {
 
     @GetMapping("/invitations")
     @Transactional(readOnly = true)
-    public List<InvitationResponse> listMyInvitations(HttpSession session) {
-        return members.findByUserIdAndStatusOrderById(access.currentUserId(session), Status.PENDING)
+    public ResponseEntity<List<InvitationResponse>> listMyInvitations(HttpSession session) {
+        List<InvitationResponse> invitations = members.findByUserIdAndStatusOrderById(
+                access.currentUserId(session), Status.PENDING)
                 .stream().map(InvitationResponse::from).toList();
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(invitations);
     }
 
     @PostMapping("/invitations/{invitationId}/accept")
@@ -119,10 +146,15 @@ public class ProjectMemberController {
     private InvitationResponse respond(Long invitationId, Long userId, boolean accept) {
         ProjectMember member = members.findByIdAndUserId(invitationId, userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "초대를 찾을 수 없습니다."));
+        requirePending(member);
+        member.respond(accept);
+        notifications.invitationChanged(userId);
+        return InvitationResponse.from(member);
+    }
+
+    private void requirePending(ProjectMember member) {
         if (member.getStatus() != Status.PENDING) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "이미 처리된 초대입니다.");
         }
-        member.respond(accept);
-        return InvitationResponse.from(member);
     }
 }

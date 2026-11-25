@@ -1,3 +1,5 @@
+import { startVisiblePolling } from './visiblePolling.ts'
+
 export type Task = {
   id: number
   projectId: number
@@ -92,7 +94,10 @@ export function startProjectTaskSync(
     try {
       const tasks = await loadProjectTasks(projectId, signal)
       if (signal.aborted) return
-      if (revision === localRevision) callbacks.onTasks(tasks)
+      if (revision === localRevision) {
+        callbacks.onTasks(tasks)
+        if (!streaming && import.meta.env.VITE_TEAMFLOW_NODE_API === '1') callbacks.onOpen()
+      }
       taskFetchFailed = false
     } catch (error) {
       if (signal.aborted) return
@@ -187,13 +192,17 @@ export function startProjectTaskSync(
     window.clearTimeout(activityTimer)
     window.clearTimeout(reconnectTimer)
     window.clearTimeout(openTimer)
-    window.clearInterval(pollingTimer)
+    stopPolling()
   }
 
-  const pollingTimer = window.setInterval(() => {
+  const poll = () => {
     if (!streaming || connectionFailed) scheduleRefresh()
     if (!streaming || connectionFailed) scheduleActivityRefresh()
-  }, 12_000)
+  }
+  const stopPolling = import.meta.env.VITE_TEAMFLOW_NODE_API === '1' ? startVisiblePolling(poll, 12_000) : (() => {
+    const timer = window.setInterval(poll, 12_000)
+    return () => window.clearInterval(timer)
+  })()
   if (streaming) connect()
   else scheduleRefresh()
 

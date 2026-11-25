@@ -18,7 +18,7 @@ import ProjectStats from './ProjectStats'
 import ProjectPages from './ProjectPages'
 import NotificationCenter from './NotificationCenter'
 import ScrollRegion from './ScrollRegion'
-import type { NotificationItem } from './notificationSync'
+import type { TaskNotification } from './notificationSync'
 import { columns, getPriority, priorities } from './projectTaskStats'
 import { createSearchMatcher } from './search'
 import { dueDateAlerts, getDueDateAlert, getLocalCalendarDay, showDatePicker } from './taskDates'
@@ -54,6 +54,13 @@ function App({ userId, onSessionExpired }: {
   const [favoriteProjectIds, setFavoriteProjectIds] = useState(() => readFavoriteProjects(favoriteStorageKey))
   const route = readWorkspaceRoute(workspaceHash)
   const isDashboard = route.page === 'dashboard'
+  const [invitationRefresh, setInvitationRefresh] = useState(0)
+  const refreshInvitations = useCallback(() => setInvitationRefresh((previous) => previous + 1), [])
+  const invitationsHref = '#/invitations'
+  const openInvitationInbox = () => {
+    if (workspaceHash === invitationsHref) document.getElementById('invitations-title')?.focus()
+    else window.location.hash = invitationsHref
+  }
   const isMyTasks = route.page === 'my-tasks'
   const projectTab = route.page === 'project' ? route.tab : null
   const selectedProject = projects.find(({ id }) => id === route.projectId)
@@ -152,10 +159,11 @@ function App({ userId, onSessionExpired }: {
 
   useEffect(() => {
     if (visibleRoutedTaskId !== undefined) focusTask(visibleRoutedTaskId)
+    else if (workspaceHash === invitationsHref) document.getElementById('invitations-title')?.focus()
     else window.scrollTo(0, 0)
-  }, [route.page, route.projectId, route.taskId, visibleRoutedTaskId])
+  }, [route.page, route.projectId, route.taskId, visibleRoutedTaskId, workspaceHash, invitationsHref])
 
-  const openNotificationTask = async (item: NotificationItem) => {
+  const openNotificationTask = async (item: TaskNotification) => {
     const response = await fetch(`/api/projects/${item.projectId}`, {
       credentials: 'include',
       cache: 'no-store',
@@ -294,7 +302,7 @@ function App({ userId, onSessionExpired }: {
     const subscriptions = liveTasks.current
     const projectIds = projects.map(({ id }) => id).sort((first, second) => first - second)
     const activeIds = new Set(projectIds)
-    const streamLimit = getProjectStreamLimit()
+    const streamLimit = import.meta.env.VITE_TEAMFLOW_NODE_API === '1' ? 0 : getProjectStreamLimit()
 
     for (const [projectId, subscription] of subscriptions) {
       if (activeIds.has(projectId)) continue
@@ -1362,7 +1370,8 @@ function App({ userId, onSessionExpired }: {
           <span aria-hidden="true">T</span>
           TeamFlow
         </a>
-        <NotificationCenter key={userId} onOpenTask={openNotificationTask} onSessionExpired={onSessionExpired} />
+        <NotificationCenter key={userId} onOpenTask={openNotificationTask} onOpenInvitations={openInvitationInbox}
+          onRefreshInvitations={refreshInvitations} onSessionExpired={onSessionExpired} />
       </header>
       <nav id="workspace-sidebar" className="tf-sidebar" aria-label="워크스페이스" hidden={!sidebarOpen} onKeyDown={(event) => {
         if (event.key !== 'Escape' || event.defaultPrevented || !event.currentTarget.contains(event.target as Node)) return
@@ -1529,6 +1538,7 @@ function App({ userId, onSessionExpired }: {
       </section>}
 
       {isDashboard && <InvitationInbox
+        refreshKey={invitationRefresh}
         workspaceReady={dashboardStatus !== 'loading'}
         onAccept={handleAcceptInvitation}
       />}

@@ -25,11 +25,15 @@ public class NotificationService {
             """;
     private static final String VISIBLE = """
             FROM notifications
-            JOIN tasks ON tasks.id = notifications.task_id
-            JOIN projects ON projects.id = tasks.project_id
+            LEFT JOIN tasks ON tasks.id = notifications.task_id
+            LEFT JOIN project_members invitation ON invitation.id = notifications.invitation_id
+            JOIN projects ON projects.id = COALESCE(tasks.project_id, invitation.project_id)
             CROSS JOIN LATERAL (SELECT notifications.recipient_id AS user_id) recipient
-            WHERE recipient.user_id = ? AND
-            """ + CAN_ACCESS;
+            WHERE recipient.user_id = ? AND (
+                (invitation.id IS NOT NULL AND invitation.user_id = recipient.user_id
+                    AND invitation.status = 'PENDING')
+                OR (tasks.id IS NOT NULL AND
+            """ + CAN_ACCESS + "))";
 
     private final JdbcTemplate jdbc;
     private final ApplicationEventPublisher events;
@@ -41,9 +45,9 @@ public class NotificationService {
 
     public record Changed(Long userId) {}
 
-    public record Item(long id, long projectId, long taskId, String taskTitle, String kind,
+    public record Item(long id, long projectId, Long taskId, String taskTitle, String kind,
                        LocalDate dueDate, Instant createdAt, boolean read,
-                       String actorName, Long parentCommentId, Long replyCommentId) {}
+                       String actorName, Long parentCommentId, Long replyCommentId, String projectName) {}
 
     public record Inbox(List<Item> items, long unreadCount, boolean hasMore) {}
 
@@ -52,17 +56,37 @@ public class NotificationService {
         long unread = jdbc.queryForObject("SELECT count(*) " + VISIBLE + " AND read_at IS NULL",
                 Long.class, userId);
         List<Item> items = jdbc.query("""
-                SELECT notifications.id, tasks.project_id, tasks.id AS task_id, tasks.title,
+                SELECT notifications.id, projects.id AS project_id, tasks.id AS task_id, tasks.title,
+                       CASE WHEN invitation.id IS NOT NULL THEN projects.name END AS project_name,
                        kind, notifications.due_date, notifications.created_at, read_at IS NOT NULL AS is_read,
                        actor_name, parent_comment_id, reply_comment_id
-                """ + VISIBLE + " ORDER BY notifications.id DESC LIMIT ? OFFSET ?",
+                """ + VISIBLE + " ORDER BY notifications.created_at DESC, notifications.id DESC LIMIT ? OFFSET ?",
                 (row, index) -> new Item(row.getLong("id"), row.getLong("project_id"),
-                        row.getLong("task_id"), row.getString("title"), row.getString("kind"),
+                        row.getObject("task_id", Long.class), row.getString("title"), row.getString("kind"),
                         row.getObject("due_date", LocalDate.class), row.getTimestamp("created_at").toInstant(),
                         row.getBoolean("is_read"), row.getString("actor_name"),
-                        row.getObject("parent_comment_id", Long.class), row.getObject("reply_comment_id", Long.class)),
+                        row.getObject("parent_comment_id", Long.class), row.getObject("reply_comment_id", Long.class),
+                        row.getString("project_name")),
                 userId, PAGE_SIZE + 1, (long) page * PAGE_SIZE);
         return new Inbox(items.stream().limit(PAGE_SIZE).toList(), unread, items.size() > PAGE_SIZE);
+    }
+
+    public boolean publishInvitation(Long invitationId, Long recipientId) {
+        int changed = jdbc.update("""
+                INSERT INTO notifications (recipient_id, invitation_id, kind, created_at)
+                VALUES (?, ?, 'PROJECT_INVITATION', statement_timestamp())
+                ON CONFLICT (invitation_id) DO UPDATE
+                SET created_at = EXCLUDED.created_at, read_at = NULL
+                WHERE notifications.created_at <= EXCLUDED.created_at - INTERVAL '1 minute'
+                """, recipientId, invitationId);
+        if (changed > 0) {
+            invitationChanged(recipientId);
+        }
+        return changed > 0;
+    }
+
+    public void invitationChanged(Long recipientId) {
+        events.publishEvent(new Changed(recipientId));
     }
 
     public void assigned(Long taskId, Long assigneeId, Long actorId) {

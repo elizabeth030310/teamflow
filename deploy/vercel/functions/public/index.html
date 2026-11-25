@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TeamFlow Preview 인증 확인</title>
+  <script type="module" src="/preview.js"></script>
+</head>
+<body>
+  <main>
+    <h1>TeamFlow Preview 인증 확인</h1>
+    <form id="login">
+      <label>테스트 이메일 <input name="email" type="email" autocomplete="username" required></label>
+      <label>비밀번호 <input name="password" type="password" autocomplete="current-password" required></label>
+      <button>로그인</button>
+    </form>
+    <button id="logout" type="button">로그아웃</button>
+    <output id="session" aria-live="polite">세션 확인 중</output>
+  </main>
+</body>
+</html>

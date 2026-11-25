@@ -1,0 +1,83 @@
+{
+  "AdminController": [
+    "GET /api/admin/audit",
+    "GET /api/admin/audit/page",
+    "GET /api/admin/users",
+    "GET /api/admin/users/stats",
+    "POST /api/admin/users/{id}/status"
+  ],
+  "AuthController": [
+    "GET /api/auth/me",
+    "POST /api/auth/change-password",
+    "POST /api/auth/login",
+    "POST /api/auth/logout",
+    "POST /api/auth/signup",
+    "POST /api/auth/signup/code"
+  ],
+  "HelloController": [
+    "GET /api/hello"
+  ],
+  "NotificationController": [
+    "GET /api/notifications",
+    "PATCH /api/notifications/read-all",
+    "PATCH /api/notifications/{id}/read"
+  ],
+  "ProjectActivityController": [
+    "GET /api/projects/{projectId}/activities"
+  ],
+  "ProjectController": [
+    "DELETE /api/projects/{id}",
+    "GET /api/projects",
+    "GET /api/projects/{id}",
+    "POST /api/projects",
+    "PUT /api/projects/{id}"
+  ],
+  "ProjectEventController": [
+    "GET /api/notifications/events",
+    "GET /api/projects/{projectId}/events"
+  ],
+  "ProjectMemberController": [
+    "GET /api/projects/invitations",
+    "GET /api/projects/{projectId}/invitations",
+    "GET /api/projects/{projectId}/members",
+    "POST /api/projects/invitations/{invitationId}/accept",
+    "POST /api/projects/invitations/{invitationId}/reject",
+    "POST /api/projects/{projectId}/invitations",
+    "POST /api/projects/{projectId}/invitations/{invitationId}/resend"
+  ],
+  "ProjectPageController": [
+    "DELETE /api/projects/{projectId}/pages/{pageId}",
+    "GET /api/projects/{projectId}/pages",
+    "GET /api/projects/{projectId}/pages/tree",
+    "GET /api/projects/{projectId}/pages/{pageId}",
+    "GET /api/projects/{projectId}/pages/{pageId}/children",
+    "POST /api/projects/{projectId}/pages",
+    "PUT /api/projects/{projectId}/pages/{pageId}"
+  ],
+  "TaskAttachmentController": [
+    "DELETE /api/tasks/{taskId}/attachments/{attachmentId}",
+    "GET /api/tasks/{taskId}/attachments",
+    "GET /api/tasks/{taskId}/attachments/{attachmentId}/download",
+    "POST /api/tasks/{taskId}/attachments"
+  ],
+  "TaskChecklistController": [
+    "DELETE /api/tasks/{taskId}/checklist-items/{itemId}",
+    "GET /api/tasks/{taskId}/checklist-items",
+    "PATCH /api/tasks/{taskId}/checklist-items/{itemId}",
+    "POST /api/tasks/{taskId}/checklist-items"
+  ],
+  "TaskCommentController": [
+    "DELETE /api/tasks/{taskId}/comments/{commentId}",
+    "GET /api/tasks/{taskId}/comments",
+    "PATCH /api/tasks/{taskId}/comments/{commentId}",
+    "POST /api/tasks/{taskId}/comments"
+  ],
+  "TaskController": [
+    "DELETE /api/tasks/{id}",
+    "GET /api/tasks/project/{projectId}",
+    "PATCH /api/tasks/{id}/assignee",
+    "PATCH /api/tasks/{id}/status",
+    "POST /api/tasks",
+    "PUT /api/tasks/{id}"
+  ]
+}

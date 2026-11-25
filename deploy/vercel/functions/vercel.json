@@ -1,0 +1,17 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "outputDirectory": "public",
+  "fluid": true,
+  "rewrites": [
+    { "source": "/api/hello", "destination": "/api/collaboration?_teamflowPath=hello" },
+    { "source": "/api/:scope(projects|tasks|notifications|admin)", "destination": "/api/collaboration?_teamflowPath=:scope" },
+    { "source": "/api/:scope(projects|tasks|notifications|admin)/:tail*", "destination": "/api/collaboration?_teamflowPath=:scope/:tail*" }
+  ],
+  "crons": [{ "path": "/api/maintenance", "schedule": "0 16 * * *" }],
+  "functions": {
+    "api/ready.ts": { "maxDuration": 15 },
+    "api/auth/**/*.ts": { "maxDuration": 15 },
+    "api/collaboration.ts": { "maxDuration": 30 },
+    "api/maintenance.ts": { "maxDuration": 45 }
+  }
+}

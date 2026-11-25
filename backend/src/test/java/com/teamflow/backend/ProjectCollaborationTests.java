@@ -1,6 +1,7 @@
 package com.teamflow.backend;
 
 import com.teamflow.backend.entity.Project;
+import com.teamflow.backend.entity.ProjectMember;
 import com.teamflow.backend.entity.Task;
 import com.teamflow.backend.entity.User;
 import com.teamflow.backend.repository.ProjectMemberRepository;
@@ -26,6 +27,7 @@ import java.time.LocalDate;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Executors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.nullValue;
@@ -61,6 +63,93 @@ class ProjectCollaborationTests {
         invitee = addUser("invitee");
         outsider = addUser("outsider");
         project = addProject(owner);
+    }
+
+    @Test
+    void resendsLegacyInvitationOnlyToItsRecipientAndPreservesAcceptance() throws Exception {
+        long invitationId = members.saveAndFlush(new ProjectMember(project, invitee)).getId();
+        inbox(invitee).andExpect(jsonPath("$.items").isEmpty());
+        receivedInvitations(invitee).andExpect(jsonPath("$[0].id").value(invitationId));
+
+        resend(owner, project.getId(), invitationId).andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(invitationId))
+                .andExpect(jsonPath("$.status").value("PENDING"));
+        resend(owner, project.getId(), invitationId).andExpect(status().isTooManyRequests());
+        assertThat(members.findByProjectIdOrderById(project.getId())).hasSize(1);
+        inbox(outsider).andExpect(jsonPath("$.items").isEmpty());
+        receivedInvitations(outsider).andExpect(jsonPath("$").isEmpty());
+        inbox(invitee).andExpect(jsonPath("$.items[0].kind").value("PROJECT_INVITATION"))
+                .andExpect(jsonPath("$.items[0].projectName").value(project.getName()))
+                .andExpect(jsonPath("$.items[0].taskId").value(nullValue()))
+                .andExpect(jsonPath("$.unreadCount").value(1));
+        long notificationId = jdbc.queryForObject("select id from notifications where invitation_id = ?",
+                Long.class, invitationId);
+        mvc.perform(patch("/api/notifications/{id}/read", notificationId)
+                        .with(user(invitee.getEmail())).session(session(invitee)))
+                .andExpect(status().isNoContent());
+        inbox(invitee).andExpect(jsonPath("$.unreadCount").value(0));
+        jdbc.update("update notifications set created_at = statement_timestamp() - interval '61 seconds' where id = ?",
+                notificationId);
+        resend(owner, project.getId(), invitationId).andExpect(status().isOk());
+        inbox(invitee).andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].id").value(notificationId))
+                .andExpect(jsonPath("$.unreadCount").value(1));
+        receivedInvitations(invitee).andExpect(jsonPath("$[0].id").value(invitationId));
+        respond(invitee, invitationId, "accept").andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ACCEPTED"));
+        receivedInvitations(invitee).andExpect(jsonPath("$").isEmpty());
+        inbox(invitee).andExpect(jsonPath("$.items").isEmpty());
+        resend(owner, project.getId(), invitationId).andExpect(status().isConflict());
+    }
+
+    @Test
+    void concurrentResendPublishesOneCommittedNotificationToRecipient() throws Exception {
+        long invitationId = members.saveAndFlush(new ProjectMember(project, invitee)).getId();
+        TestTransaction.flagForCommit();
+        TestTransaction.end();
+
+        MockHttpSession recipientSession = session(invitee);
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            MvcResult stream = openNotificationStream(invitee, recipientSession);
+            var first = executor.submit(() -> resend(owner, project.getId(), invitationId)
+                    .andReturn().getResponse().getStatus());
+            var second = executor.submit(() -> resend(owner, project.getId(), invitationId)
+                    .andReturn().getResponse().getStatus());
+            assertThat(java.util.List.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS)))
+                    .containsExactlyInAnyOrder(200, 429);
+            awaitEvent(stream, "event:notifications-changed");
+            assertThat(jdbc.queryForObject("select count(*) from notifications where invitation_id = ?",
+                    Long.class, invitationId)).isEqualTo(1L);
+            receivedInvitations(invitee).andExpect(jsonPath("$[0].id").value(invitationId));
+        } finally {
+            recipientSession.invalidate();
+            projects.deleteById(project.getId());
+            users.deleteAllById(java.util.List.of(owner.getId(), invitee.getId(), outsider.getId()));
+        }
+    }
+
+    @Test
+    void deniesResendToNonOwnersAndWithWrongProjectOrInactiveRecipient() throws Exception {
+        long invitationId = invite(invitee);
+        mvc.perform(post("/api/projects/{projectId}/invitations/{id}/resend", project.getId(), invitationId))
+                .andExpect(status().isUnauthorized());
+        resend(invitee, project.getId(), invitationId).andExpect(status().isNotFound());
+        respond(outsider, invite(outsider), "accept").andExpect(status().isOk());
+        resend(outsider, project.getId(), invitationId).andExpect(status().isNotFound());
+        resend(owner, addProject(owner).getId(), invitationId).andExpect(status().isNotFound());
+        invitee.changeAccountStatus(User.Status.SUSPENDED);
+        users.flush();
+        resend(owner, project.getId(), invitationId).andExpect(status().isNotFound());
+    }
+
+    private ResultActions resend(User actor, long projectId, long invitationId) throws Exception {
+        return mvc.perform(post("/api/projects/{projectId}/invitations/{id}/resend", projectId, invitationId)
+                .with(user(actor.getEmail())).session(session(actor)));
+    }
+
+    private ResultActions receivedInvitations(User actor) throws Exception {
+        return mvc.perform(get("/api/projects/invitations").with(user(actor.getEmail())).session(session(actor)))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"));
     }
 
     @Test
@@ -327,6 +416,7 @@ class ProjectCollaborationTests {
         Long invitationId = invite(invitee);
         sendInvite(invitee).andExpect(status().isConflict());
         respond(invitee, invitationId, "reject").andExpect(jsonPath("$.status").value("REJECTED"));
+        resend(owner, project.getId(), invitationId).andExpect(status().isConflict());
         assertBlocked(invitee);
         sendInvite(invitee).andExpect(status().isConflict());
         mvc.perform(get("/api/projects/{id}/invitations", project.getId())

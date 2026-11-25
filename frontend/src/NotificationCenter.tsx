@@ -1,7 +1,7 @@
 import { apiFetch } from './apiFetch.ts'
 import { useEffect, useRef, useState } from 'react'
 import { startNotificationSync } from './notificationSync'
-import type { NotificationInbox, NotificationItem } from './notificationSync'
+import type { NotificationInbox, NotificationItem, TaskNotification } from './notificationSync'
 
 const labels = {
   ASSIGNMENT: '작업 배정',
@@ -9,12 +9,15 @@ const labels = {
   COMMENT_REPLY: '내 댓글에 답글',
   DUE_SOON: '마감 임박',
   OVERDUE: '마감 지남',
+  PROJECT_INVITATION: '프로젝트 초대',
 }
 
 const timestamp = new Intl.DateTimeFormat('ko-KR', { dateStyle: 'short', timeStyle: 'short' })
 
-export default function NotificationCenter({ onOpenTask, onSessionExpired }: {
-  onOpenTask: (item: NotificationItem) => Promise<void>
+export default function NotificationCenter({ onOpenTask, onOpenInvitations, onRefreshInvitations, onSessionExpired }: {
+  onOpenTask: (item: TaskNotification) => Promise<void>
+  onOpenInvitations: () => void
+  onRefreshInvitations: () => void
   onSessionExpired: () => void
 }) {
   const [open, setOpen] = useState(false)
@@ -38,6 +41,7 @@ export default function NotificationCenter({ onOpenTask, onSessionExpired }: {
     }, (inbox) => {
       setSnapshot({ page, inbox })
       setLoadingError(false)
+      onRefreshInvitations()
     }, (error) => {
       if (error instanceof Error && error.message === '401') onSessionExpired()
       else setLoadingError(true)
@@ -47,7 +51,7 @@ export default function NotificationCenter({ onOpenTask, onSessionExpired }: {
       subscription.close()
       sync.current = null
     }
-  }, [onSessionExpired, page])
+  }, [onRefreshInvitations, onSessionExpired, page])
 
   const inbox = snapshot?.page === page ? snapshot.inbox : undefined
   const unreadCount = snapshot?.inbox.unreadCount
@@ -68,7 +72,12 @@ export default function NotificationCenter({ onOpenTask, onSessionExpired }: {
           return
         }
         if (response.status === 404 && item) {
-          setActionError('이 알림의 작업을 더 이상 열 수 없습니다.')
+          if (item.kind === 'PROJECT_INVITATION' && navigate) {
+            onOpenInvitations()
+            setOpen(false)
+          } else {
+            setActionError('이 알림을 더 이상 열 수 없습니다.')
+          }
           return
         }
         if (!response.ok) {
@@ -77,11 +86,12 @@ export default function NotificationCenter({ onOpenTask, onSessionExpired }: {
         }
       }
       if (item && navigate) {
-        await onOpenTask(item)
+        if (item.kind === 'PROJECT_INVITATION') onOpenInvitations()
+        else await onOpenTask(item)
         setOpen(false)
       }
     } catch {
-      setActionError(navigate ? '작업을 열지 못했습니다. 다시 시도해 주세요.' : '읽음 상태를 저장하지 못했습니다.')
+      setActionError(navigate ? '알림을 열지 못했습니다. 다시 시도해 주세요.' : '읽음 상태를 저장하지 못했습니다.')
     } finally {
       void sync.current?.refresh()
       setBusy(false)
@@ -131,11 +141,11 @@ export default function NotificationCenter({ onOpenTask, onSessionExpired }: {
                   <span>{item.kind === 'COMMENT_REPLY' && item.actorName
                     ? `${item.actorName}님이 내 댓글에 답글을 남겼습니다.`
                     : labels[item.kind]}{item.dueDate && ` · ${item.dueDate}`}</span>
-                  <strong>{item.taskTitle}</strong>
+                  <strong>{item.kind === 'PROJECT_INVITATION' ? item.projectName : item.taskTitle}</strong>
                   <time dateTime={item.createdAt}>{timestamp.format(new Date(item.createdAt))}</time>
                 </button>
                 {!item.read && <button type="button" disabled={busy}
-                  aria-label={`${labels[item.kind]}, ${item.taskTitle} 읽음 처리`}
+                  aria-label={`${labels[item.kind]}, ${item.kind === 'PROJECT_INVITATION' ? item.projectName : item.taskTitle} 읽음 처리`}
                   onClick={() => void markRead(item)}>읽음</button>}
               </li>
             ))}

@@ -1,3 +1,5 @@
+param([string[]]$MavenArgs = @())
+
 $ErrorActionPreference = 'Stop'
 $runId = [Guid]::NewGuid().ToString('N')
 $container = 'teamflow-test-' + $runId
@@ -31,7 +33,7 @@ try {
     }
     if (!$ready) { throw 'Isolated PostgreSQL did not become ready' }
 
-    .\mvnw.cmd test
+    .\mvnw.cmd test @MavenArgs
     if ($LASTEXITCODE -ne 0) { throw 'Backend test command failed' }
 } finally {
     if ($started) { docker stop $container | Out-Null }
